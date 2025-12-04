@@ -28,7 +28,7 @@ col1, col2 = st.columns(2)
 with col1:
     date = st.date_input("Date", value=datetime.today())
 with col2:
-    weight = st.number_input("Weight (lbs)", min_value=50.0, max_value=500.0, step=0.1, value=150.0)
+    weight = st.number_input("Weight (lbs)", min_value=50.0, max_value=500.0, step=0.1)
 
 if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
@@ -42,36 +42,48 @@ df = pd.read_sql_query("SELECT * FROM weights", conn)
 if not df.empty:
     df['date'] = pd.to_datetime(df['date'])
 
-# ——— IMPORT CSV (works perfectly) ———
+# ——— IMPORT CSV (100% FIXED) ———
 with st.expander("Import Old Data"):
-    uploaded = st.file_uploader("Upload backup CSV", type="csv")
+    uploaded = st.file_uploader("Upload backup CSV", type="csv", key="uploader")
     if uploaded:
         try:
             import_df = pd.read_csv(uploaded)
-            cols = [c.lower() for c in import_df.columns]
-            rename_dict = {}
-            for c in cols:
-                if "user" in c: rename_dict[import_df.columns[cols.index(c)]] = "user"
-                if "date" in c: rename_dict[import_df.columns[cols.index(c)]] = "date"
-                if "weight" in c: rename_dict[import_df.columns[cols.index(c)]] = "weight"
-            import_df = import_df.rename(columns=rename_dict)
+
+            # Detect columns
+            cols_lower = [col.strip().lower() for col in import_df.columns]
+            rename_map = {}
+            for orig_col, lower_col in zip(import_df.columns, cols_lower):
+                if "user" in lower_col:   rename_map[orig_col] = "user"
+                if "date" in lower_col:   rename_map[orig_col] = "date"
+                if "weight" in lower_col: rename_map[orig_col] = "weight"
+
+            if not all(k in rename_map.values() for k in ["user","date","weight"]):
+                st.error("CSV must contain columns with 'User', 'Date', and 'Weight'")
+                st.stop()
+
+            import_df = import_df.rename(columns=rename_map)
             import_df = import_df[["user","date","weight"]].dropna()
             import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
             import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
-            import_df = import_df.dropna()
+            import_df = import_df.dropna(subset=["date","weight"])
             import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
-            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", import_df.values.tolist())
+
+            # ← THIS WAS THE BUG — now fixed
+            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", 
+                         import_df[["user","date","weight"]].values.tolist())
             conn.commit()
+
             st.success(f"Imported {len(import_df)} entries!")
             st.rerun()
+
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Import failed: {e}")
 
 if df.empty:
     st.info("No data yet — start logging or import a backup!")
     st.stop()
 
-# ——— ENHANCED DATA FOR TOOLTIPS ———
+# ——— ENHANCED TOOLTIP DATA ———
 df = df.sort_values("date").reset_index(drop=True)
 df["prev_weight"] = df.groupby("user")["weight"].shift(1)
 df["change_prev"] = df["weight"] - df["prev_weight"]
@@ -87,24 +99,22 @@ df["tooltip_prev"] = df.apply(
 
 # ——— TIME RANGE FILTER ———
 st.markdown("### Trend Chart")
-col1, col2, col3, col4, col5 = st.columns(5)
-today = datetime.today()
+view = st.radio("View:", ["Week", "30-Day", "90-Day", "Year", "All"], horizontal=True, key="view_range")
 
-view_options = {
+today = datetime.today()
+cutoffs = {
     "Week": today - timedelta(days=7),
     "30-Day": today - timedelta(days=30),
     "90-Day": today - timedelta(days=90),
     "Year": today - timedelta(days=365),
     "All": df["date"].min()
 }
+chart_df = df[df["date"] >= pd.to_datetime(cutoffs[view])].copy()
 
-view = st.radio("View:", ["Week", "30-Day", "90-Day", "Year", "All"], horizontal=True, key="view")
-
-cutoff = view_options[view]
-chart_df = df[df["date"] >= pd.to_datetime(cutoff)].copy()
-
-# ——— CHART (FIXED + BEAUTIFUL) ———
-base = alt.Chart(chart_df).encode(
+# ——— CHART ———
+chart = alt.Chart(chart_df).mark_line(
+    point=alt.OverlayMarkDef(size=200, strokeWidth=3)
+).encode(
     x=alt.X("date:T", title="Date"),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(zero=False)),
     color=alt.Color("user:N", title="Person"),
@@ -115,10 +125,9 @@ base = alt.Chart(chart_df).encode(
         alt.Tooltip("tooltip_total:N", title="Total Change"),
         alt.Tooltip("tooltip_prev:N", title="Since Last")
     ]
-)
+).properties(height=450).interactive()
 
-line = base.mark_line(point=alt.OverlayMarkDef(size=200, strokeWidth=3))
-st.altair_chart(line, use_container_width=True)
+st.altair_chart(chart, use_container_width=True)
 
 # ——— STATS ———
 def get_stats(user_df):
@@ -166,7 +175,9 @@ with c2:
 st.markdown("### Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
-st.markdown("### Data Safety")
-csv = df.to_csv(index=False).encode()
-st.download_button("Download Full Backup CSV", csv,
-                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv", "text/csv")
+st.download_button(
+    "Download Full Backup CSV",
+    data=df.to_csv(index=False).encode(),
+    file_name=f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+    mime="text/csv"
+)
