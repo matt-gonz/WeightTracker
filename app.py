@@ -39,7 +39,7 @@ df = pd.read_sql_query("SELECT * FROM weights", conn)
 if not df.empty:
     df['date'] = pd.to_datetime(df['date'])
 
-# ——— IMPORT CSV (super forgiving) ———
+# ——— IMPORT CSV (fixed syntax + super forgiving) ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded_file = st.file_uploader("Upload backup CSV", type="csv")
@@ -47,27 +47,34 @@ uploaded_file = st.file_uploader("Upload backup CSV", type="csv")
 if uploaded_file is not None:
     try:
         import_df = pd.read_csv(uploaded_file)
+
+        # Detect columns by content
         cols = [col.strip().lower() for col in import_df.columns]
         user_col = date_col = weight_col = None
         for i, col in enumerate(cols):
-            if "user" in col: user_col = import_df.columns[i]
-            if "date" in col: date_col = import_df.columns[i]
+            if "user" in col:   user_col = import_df.columns[i]
+            if "date" in col:   date_col = import_df.columns[i]
             if "weight" in col: weight_col = import_df.columns[i]
+
         if not all([user_col, date_col, weight_col]):
-            st.error("CSV needs columns with 'User', 'Date', 'Weight'")
+            st.error("CSV must have columns containing the words 'User', 'Date', and 'Weight'")
             st.stop()
-        import_df = import_df.rename(columns={user_col:"user", date_col:"date", weight_col:"weight})
+
+        # ←←← FIXED LINE ←←←
+        import_df = import_df.rename(columns={user_col: "user", date_col: "date", weight_col: "weight"})
+
         before = len(import_df)
         import_df = import_df[["user","date","weight"]].dropna()
         import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
         import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
         import_df = import_df.dropna(subset=["date","weight"])
         import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
-        if len(import_df)>0:
+
+        if len(import_df) > 0:
             skipped = before - len(import_df)
             c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", import_df.values.tolist())
             conn.commit()
-            st.success(f"Imported {len(import_df)} entries! (skipped {skipped} blanks)")
+            st.success(f"Imported {len(import_df)} entries! (skipped {skipped} blank/invalid rows)")
             st.rerun()
         else:
             st.error("No valid rows found")
@@ -87,18 +94,17 @@ df['days_since_prev'] = df.groupby('user')['date'].diff().dt.days
 df['start_weight'] = df.groupby('user')['weight'].transform('first')
 df['total_change'] = df['weight'] - df['start_weight']
 
-# Format for nice tooltips
 df['tooltip_change'] = df.apply(
-    lambda row: f"{row['total_change']:+.1f} lbs" if pd.notna(row['total_change']) else "Starting weight",
+    lambda row: f"{row['total_change']:+.1f} lbs" if pd.notna(row['total_change']) else "Starting",
     axis=1
 )
 df['tooltip_prev'] = df.apply(
-    lambda row: f" (+{row['change_since_prev']:+.1f} lbs in {int(row['days_since_prev'])} days)" 
+    lambda row: f" ({row['change_since_prev']:+.1f} lbs in {int(row['days_since_prev'])} days)" 
     if pd.notna(row['change_since_prev']) else "",
     axis=1
 )
 
-# ——— STATS (14-day rate = last 14 actual weigh-ins) ———
+# ——— STATS ———
 def get_stats(user_df):
     if user_df.empty:
         return {"latest":"—","start":"—","change":"—","pct":"—","rate":"—","streak":0}
@@ -144,7 +150,7 @@ with c2:
     st.write(f"**14-day rate:** {j['rate']} lbs/week")
     st.write(f"**Streak:** {j['streak']} days")
 
-# ——— INTERACTIVE CHART WITH RICH TOOLTIPS ———
+# ——— CHART WITH RICH TOOLTIPS ———
 st.header("Trend Chart — Tap any dot!")
 chart = alt.Chart(df).mark_line(point=alt.OverlayMarkDef(size=200, filled=True)).encode(
     x=alt.X('date:T', title="Date"),
@@ -166,7 +172,7 @@ st.dataframe(df.sort_values('date', ascending=False).head(10)[['user','date','we
 
 # ——— BACKUP ———
 st.markdown("---")
-st.subheader("Data Safety — You're Invincible")
+st.subheader("Data Safety")
 csv = df.to_csv(index=False).encode('utf-8')
 st.download_button(
     label="Download Full Backup CSV",
