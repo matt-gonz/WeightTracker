@@ -6,33 +6,23 @@ import sqlite3
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
-import base64
 
-# ———————————— GOOGLE SHEETS AUTO-BACKUP SETUP ————————————
-# Put your Google Sheet ID here (from the URL)
-GOOGLE_SHEET_ID = "1HguHMjbuAP1uZ9qgjlzkogbcLVgFyQ8XRwElmd6r8KU"   # ← CHANGE THIS
-
-# The credentials below are safe — they only work with Streamlit's secrets
+# ——— GOOGLE SHEETS BACKUP ———
 def get_gspread_client():
-    if "google_credentials" in st.secrets:
-        creds_dict = st.secrets["google_credentials"]
-    else:
-        # fallback for local testing — create a secrets.toml with your JSON
-        creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["google_credentials"], scope)
     return gspread.authorize(creds)
 
 def append_to_google_sheet(user, date, weight):
     try:
         client = get_gspread_client()
-        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+        sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).sheet1
         sheet.append_row([user, date.strftime("%Y-%m-%d"), weight])
         st.success("Backed up to Google Sheets")
     except Exception as e:
-        st.error(f"Google Sheets backup failed: {str(e)}")
+        st.error(f"Backup failed: {str(e)}")
 
-# ———————————— LOCAL DATABASE ————————————
+# ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS weights 
@@ -43,26 +33,27 @@ st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
 user = st.sidebar.selectbox("Who are you?", ["Matthew", "Jasmine"])
-starting_weights = {"Matthew": 160.0, "Jasmine": 130.0}   # ← change if needed
+starting_weights = {"Matthew": 160.0, "Jasmine": 130.0}
 
-# ———————————— LOG WEIGHT (any date) ————————————
+# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 date = st.date_input("Date", value=datetime.now().date())
-weight_input = st.number_input("Weight (lbs)", min_value=50.0, max_value=500.0, step=0.1, key=f"weight_{date}")
+weight_input = st.number_input("Weight (lbs)", min_value=50.0, max_value=500.0, step=0.1)
 
 if st.button("Log / Overwrite Weight"):
     c.execute("INSERT OR REPLACE INTO weights (user, date, weight) VALUES (?, ?, ?)",
               (user, date, weight_input))
     conn.commit()
     
-    # Automatic Google Sheets backup
-    if GOOGLE_SHEET_ID != "1HguHMjbuAP1uZ9qgjlzkogbcLVgFyQ8XRwElmd6r8KU":
+    # Auto backup
+    try:
         append_to_google_sheet(user, date, weight_input)
+    except:
+        pass  # Already handled inside function
     
-    st.success(f"Logged {weight_input} lbs for {user} on {date}")
     st.rerun()
 
-# ———————————— LOAD & DISPLAY (unchanged from before) ————————————
+# ——— LOAD DATA ———
 df = pd.read_sql_query("SELECT * FROM weights ORDER BY date", conn)
 df['date'] = pd.to_datetime(df['date'])
 
@@ -70,6 +61,7 @@ if df.empty:
     st.info("No data yet — start logging!")
     st.stop()
 
+# ——— STATS ———
 def get_stats(user_df, start_weight):
     if user_df.empty:
         return {"latest": "-", "change": "-", "pct": "-", "rate": "-", "streak": 0}
@@ -96,6 +88,7 @@ jas = df[df['user'] == "Jasmine"]
 matt_stats = get_stats(matt, starting_weights["Matthew"])
 jas_stats = get_stats(jas, starting_weights["Jasmine"])
 
+# ——— DISPLAY ———
 st.header("Current Standings")
 cols = st.columns(2)
 with cols[0]:
@@ -113,12 +106,9 @@ with cols[1]:
 
 st.header("Trend Chart")
 chart = alt.Chart(df).mark_line(point=True).encode(
-    x='date:T', y='weight:Q', color='user:N',
-    tooltip=['user', 'date', 'weight']
+    x='date:T', y='weight:Q', color='user:N', tooltip=['user', 'date', 'weight']
 ).properties(width=700, height=400).interactive()
-st.altair_chart(chart, use_container_width=True)
+st.altair_chart(chart, width="stretch")  # Fixed: no more warnings
 
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values('date', ascending=False).head(10))
-
-
