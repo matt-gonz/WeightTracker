@@ -44,47 +44,45 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— IMPORT CSV (100% FIXED) ———
-with st.expander("Import Old Data"):
-    uploaded = st.file_uploader("Upload backup CSV", type="csv", key="uploader")
-    if uploaded:
-        try:
-            import_df = pd.read_csv(uploaded)
+# ——— IMPORT TOOL — BACK AND BETTER ———
+st.markdown("---")
+st.subheader("Import Old Data")
+uploaded_file = st.file_uploader("Upload a backup CSV to restore everything", type="csv")
 
-            # Detect columns
-            cols_lower = [col.strip().lower() for col in import_df.columns]
-            rename_map = {}
-            for orig_col, lower_col in zip(import_df.columns, cols_lower):
-                if "user" in lower_col:   rename_map[orig_col] = "user"
-                if "date" in lower_col:   rename_map[orig_col] = "date"
-                if "weight" in lower_col: rename_map[orig_col] = "weight"
+if uploaded_file is not None:
+    try:
+        import_df = pd.read_csv(uploaded_file)
 
-            if not all(k in rename_map.values() for k in ["user","date","weight"]):
-                st.error("CSV must contain columns with 'User', 'Date', and 'Weight'")
-                st.stop()
+        # Super forgiving column detection
+        cols = [col.strip().lower() for col in import_df.columns]
+        user_col = date_col = weight_col = None
+        for i, col in enumerate(cols):
+            if "user" in col:   user_col = import_df.columns[i]
+            if "date" in col:   date_col = import_df.columns[i]
+            if "weight" in col: weight_col = import_df.columns[i]
 
-            import_df = import_df.rename(columns=rename_map)
-            import_df = import_df[["user","date","weight"]].dropna()
-            import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
-            import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
-            import_df = import_df.dropna(subset=["date","weight"])
-            import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
+        if not all([user_col, date_col, weight_col]):
+            st.error("CSV must have columns containing 'User', 'Date', and 'Weight'")
+            st.stop()
 
-            # ← THIS WAS THE BUG — now fixed
-            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", 
-                         import_df[["user","date","weight"]].values.tolist())
-            conn.commit()
+        import_df = import_df.rename(columns={user_col:"user", date_col:"date", weight_col:"weight"})
+        before = len(import_df)
+        import_df = import_df[["user","date","weight"]].dropna()
+        import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
+        import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
+        import_df = import_df.dropna(subset=["date","weight"])
+        import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
 
-            st.success(f"Imported {len(import_df)} entries!")
-            st.rerun()
+        c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", 
+                     import_df.values.tolist())
+        conn.commit()
+        skipped = before - len(import_df)
+        st.success(f"Imported {len(import_df)} entries! (skipped {skipped} blank/invalid rows)")
+        st.rerun()
 
-        except Exception as e:
-            st.error(f"Import failed: {e}")
+    except Exception as e:
+        st.error(f"Import failed: {e}")
 
-if df.empty:
-    st.info("No data yet — start logging or import a backup!")
-    st.stop()
-  
 # ——— TOOLTIP DATA ———
 df["change"] = df.groupby("user")["weight"].diff()
 df["days_gap"] = df.groupby("user")["date"].diff().dt.days
@@ -96,7 +94,7 @@ df["tooltip_prev"] = df.apply(
     if pd.notna(r['change']) else "", axis=1
 )
 
-# ——— DATE RANGE FILTER (THIS IS THE FIX) ———
+# ——— DATE RANGE FILTER ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
@@ -108,13 +106,14 @@ if chart_df.empty:
     st.info("No data in this time range yet.")
     st.stop()
 
-# ——— CLEAN, BEAUTIFUL CHART ———
-line = alt.Chart(chart_df).mark_line(point=alt.OverlayMarkDef(size=180, filled=True)).encode(
+# ——— CLEAN CHART (exactly like you want) ———
+chart = alt.Chart(chart_df).mark_line(
+    point=alt.OverlayMarkDef(size=180, filled=True)
+).encode(
     x=alt.X("date:T", title="Date"),
     y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N", title="Person",
-                    scale=alt.Scale(domain=["Matthew", "Jasmine"],
-                                    range=["#00CC96", "#FF6B6B"])),
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00CC96","#FF6B6B"])),
     tooltip=[
         alt.Tooltip("user:N", title="Who"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
@@ -122,34 +121,32 @@ line = alt.Chart(chart_df).mark_line(point=alt.OverlayMarkDef(size=180, filled=T
         alt.Tooltip("tooltip_total:N", title="Total Change"),
         alt.Tooltip("tooltip_prev:N", title="Since Last")
     ]
-).properties(
-    height=480
-).interactive()
+).properties(height=480).interactive()
 
-st.altair_chart(line, use_container_width=True)
+st.altair_chart(chart, use_container_width=True)
 
 # ——— STATS ———
-def stats(user_df):
-    if user_df.empty: return {"latest":"—", "change":"—", "pct":"—", "rate":0, "streak":0}
-    user_df = user_df.sort_values("date")
-    start = user_df.iloc[0]["weight"]
-    latest = user_df.iloc[-1]["weight"]
+def get_stats(user_df):
+    if user_df.empty: return {"latest":"—","change":"—","pct":"—","rate":0,"streak":0}
+    user_df = user_df.sort_values("date").reset_index(drop=True)
+    start = user_df["weight"].iloc[0]
+    latest = user_df["weight"].iloc[-1]
     change = latest - start
-    pct = change / start * 100
+    pct = round(change/start*100, 2)
     rate = 0
     if len(user_df) >= 14:
-        w14 = user_df.iloc[-14]["weight"]
-        days = (user_df.iloc[-1]["date"] - user_df.iloc[-14]["date"]).days
+        w14 = user_df["weight"].iloc[-14]
+        days = (user_df["date"].iloc[-1] - user_df["date"].iloc[-14]).days
         rate = round((latest - w14) * 7 / days, 2) if days > 0 else 0
     streak = 1
     for i in range(len(user_df)-2, -1, -1):
-        if (user_df.iloc[i+1]["date"] - user_df.iloc[i]["date"]).days == 1:
+        if (user_df["date"].iloc[i+1] - user_df["date"].iloc[i]).days == 1:
             streak += 1
         else: break
     return {"latest":latest, "change":f"{change:+.1f}", "pct":f"{pct:+.1f}%", "rate":rate, "streak":streak}
 
-m = stats(df[df["user"] == "Matthew"])
-j = stats(df[df["user"] == "Jasmine"])
+m = get_stats(df[df["user"] == "Matthew"])
+j = get_stats(df[df["user"] == "Jasmine"])
 
 st.header("Current Standings")
 c1, c2 = st.columns(2)
@@ -166,9 +163,9 @@ with c2:
     st.write(f"**14-day rate:** {j['rate']} lbs/week")
     st.write(f"**Streak:** {j['streak']} days")
 
-# ——— LAST ENTRIES & BACKUP ———
+# ——— LAST 10 + BACKUP ———
 st.header("Last 10 Entries")
-st.dataframe(df.tail(10)[["user","date","weight"]], hide_index=True)
+st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
 st.download_button(
     "Download Full Backup CSV",
@@ -176,4 +173,3 @@ st.download_button(
     file_name=f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
     mime="text/csv"
 )
-
