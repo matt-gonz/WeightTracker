@@ -14,7 +14,24 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"])
+# ——— AUTO-SELECT USER FROM URL (WORKS PERFECTLY) ———
+params = st.query_params.to_dict()
+if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
+    default_index = 0 if params["user"] == "Matthew" else 1
+    user = st.sidebar.selectbox(
+        "Who am I?",
+        options=["Matthew", "Jasmine"],
+        index=default_index,
+        key="user_select"
+    )
+else:
+    user = st.sidebar.selectbox(
+        "Who am I?",
+        options=["Matthew", "Jasmine"],
+        index=0,
+        key="user_select"
+    )
+
 starting_weights = {"Matthew": 160.0, "Jasmine": 130.0}
 
 # ——— LOG WEIGHT ———
@@ -26,7 +43,7 @@ if st.button("Log / Overwrite Weight"):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
               (user, date.strftime("%Y-%m-%d"), weight))
     conn.commit()
-    st.success("Logged!")
+    st.success(f"{user}: {weight} lbs logged for {date.strftime('%Y-%m-%d')}!")
     st.rerun()
 
 # ——— LOAD DATA ———
@@ -38,7 +55,7 @@ if df.empty:
     st.info("No data yet — start logging!")
     st.stop()
 
-# ——— STATS FUNCTION ———
+# ——— STATS ———
 def get_stats(user_df, start):
     if user_df.empty: return {"latest":"—","change":"—","pct":"—","rate":"—","streak":0}
     user_df = user_df.sort_values('date')
@@ -87,14 +104,13 @@ st.altair_chart(chart, width="stretch")
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values('date', ascending=False).head(10)[['user','date','weight']])
 
-# ——— ONE-CLICK BACKUP BUTTON (this is all you need) ———
+# ——— BACKUP BUTTON ———
 st.markdown("---")
-st.subheader("🔒 Never lose your data")
+st.subheader("Never lose your data")
 csv = df.to_csv(index=False).encode('utf-8')
 st.download_button(
-    label="⬇️ Download full backup CSV (save this file!)",
+    label="Download full backup CSV",
     data=csv,
     file_name=f"weight_duel_backup_{datetime.now().strftime('%Y-%m-%d')}.csv",
-    mime="text/csv",
-    help="Click once a week → save to iCloud/Dropbox/email → your data is safe forever"
+    mime="text/csv"
 )
