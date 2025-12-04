@@ -14,7 +14,7 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— AUTO-SELECT USER FROM URL (WORKS PERFECTLY) ———
+# ——— AUTO-SELECT USER FROM URL ———
 params = st.query_params.to_dict()
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_index = 0 if params["user"] == "Matthew" else 1
@@ -31,8 +31,6 @@ else:
         index=0,
         key="user_select"
     )
-
-starting_weights = {"Matthew": 160.0, "Jasmine": 130.0}
 
 # ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
@@ -55,62 +53,94 @@ if df.empty:
     st.info("No data yet — start logging!")
     st.stop()
 
-# ——— STATS ———
-def get_stats(user_df, start):
-    if user_df.empty: return {"latest":"—","change":"—","pct":"—","rate":"—","streak":0}
-    user_df = user_df.sort_values('date')
+# ——— STATS — uses first ever entry as starting weight ———
+def get_stats(user_df):
+    if user_df.empty:
+        return {"latest":"—","start":"—","change":"—","pct":"—","rate":"—","streak":0}
+    
+    user_df = user_df.sort_values('date').reset_index(drop=True)
+    start_weight = user_df['weight'].iloc[0]        # ← First logged weight
     latest = user_df['weight'].iloc[-1]
-    change = latest - start
-    pct = round(change/start*100, 2)
-    recent = user_df[user_df['date'] > pd.Timestamp.now() - pd.Timedelta(days=14)]
+    total_change = latest - start_weight
+    pct = round(total_change / start_weight * 100, 2)
+
+    # 14-day rate — exactly like Google Sheets
+    fourteen_days_ago = pd.Timestamp.today() - pd.Timedelta(days=14)
+    recent = user_df[user_df['date'] >= fourteen_days_ago]
     rate = 0
     if len(recent) >= 2:
-        days = (recent['date'].iloc[-1] - recent['date'].iloc[0]).days
-        rate = round((latest - recent['weight'].iloc[0]) * 7 / days, 2) if days > 0 else 0
+        days_span = (recent['date'].iloc[-1] - recent['date'].iloc[0]).days
+        weight_change = latest - recent['weight'].iloc[0]
+        rate = round(weight_change * 7 / days_span, 2) if days_span > 0 else 0
+
+    # Streak
     streak = 1
     for i in range(len(user_df)-2, -1, -1):
         if (user_df['date'].iloc[i+1] - user_df['date'].iloc[i]).days == 1:
             streak += 1
-        else: break
-    return {"latest":latest, "change":f"{change:+.1f}", "pct":f"{pct:+.1f}%", "rate":rate, "streak":streak}
+        else:
+            break
+
+    return {
+        "latest": latest,
+        "start": start_weight,
+        "change": f"{total_change:+.1f}",
+        "pct": f"{pct:+.1f}%",
+        "rate": rate,
+        "streak": streak
+    }
 
 matt = df[df['user'] == "Matthew"]
 jas  = df[df['user'] == "Jasmine"]
-m = get_stats(matt, starting_weights["Matthew"])
-j = get_stats(jas , starting_weights["Jasmine"])
+m = get_stats(matt)
+j = get_stats(jas)
 
 # ——— DISPLAY ———
 st.header("Current Standings")
 c1, c2 = st.columns(2)
+
 with c1:
     st.subheader("Matthew")
-    st.metric("Latest", m["latest"])
-    st.write(f"Change: {m['change']} lbs ({m['pct']})")
-    st.write(f"14-day rate: {m['rate']} lbs/week")
-    st.write(f"Streak: **{m['streak']} days**")
+    st.metric("Latest Weight", m["latest"])
+    st.caption(f"Started at {m['start']:.1f} lbs")
+    st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
+    st.write(f"**14-day rate:** {m['rate']} lbs/week")
+    st.write(f"**Streak:** {m['streak']} days 🔥")
+
 with c2:
     st.subheader("Jasmine")
-    st.metric("Latest", j["latest"])
-    st.write(f"Change: {j['change']} lbs ({j['pct']})")
-    st.write(f"14-day rate: {j['rate']} lbs/week")
-    st.write(f"Streak: **{j['streak']} days**")
+    st.metric("Latest Weight", j["latest"])
+    st.caption(f"Started at {j['start']:.1f} lbs")
+    st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
+    st.write(f"**14-day rate:** {j['rate']} lbs/week")
+    st.write(f"**Streak:** {j['streak']} days 🔥")
 
+# ——— CHART ———
 st.header("Trend Chart")
 chart = alt.Chart(df).mark_line(point=True).encode(
-    x='date:T', y='weight:Q', color='user:N', tooltip=['user','date','weight']
+    x='date:T',
+    y='weight:Q',
+    color='user:N',
+    tooltip=['user','date','weight']
 ).properties(height=400).interactive()
 st.altair_chart(chart, width="stretch")
 
+# ——— LAST ENTRIES ———
 st.header("Last 10 Entries")
-st.dataframe(df.sort_values('date', ascending=False).head(10)[['user','date','weight']])
+st.dataframe(
+    df.sort_values('date', ascending=False).head(10)[['user','date','weight']],
+    use_container_width=True,
+    hide_index=True
+)
 
 # ——— BACKUP BUTTON ———
 st.markdown("---")
-st.subheader("Never lose your data")
+st.subheader("Never Lose Your Data")
 csv = df.to_csv(index=False).encode('utf-8')
 st.download_button(
-    label="Download full backup CSV",
+    label="Download Full Backup CSV",
     data=csv,
-    file_name=f"weight_duel_backup_{datetime.now().strftime('%Y-%m-%d')}.csv",
-    mime="text/csv"
+    file_name=f"weight_duel_complete_backup_{datetime.now().strftime('%Y-%m-%d')}.csv",
+    mime="text/csv",
+    help="Click once a month and save it somewhere safe"
 )
