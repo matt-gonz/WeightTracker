@@ -45,29 +45,31 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
 
-# ——— IMPORT ———
-with st.expander("Import Old Data"):
-    uploaded = st.file_uploader("Upload backup CSV", type="csv")
-    if uploaded:
-        try:
-            tmp = pd.read_csv(uploaded)
-            rename = {}
-            for col in tmp.columns:
-                l = col.strip().lower()
-                if "user" in l: rename[col] = "user"
-                if "date" in l: rename[col] = "date"
-                if "weight" in l or "lbs" in l: rename[col] = "weight"
-            tmp = tmp.rename(columns=rename)[["user","date","weight"]].dropna()
-            tmp = tmp[tmp["user"].isin(["Matthew","Jasmine"])]
-            tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
-            tmp = tmp.dropna()
-            tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
-            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", tmp.values.tolist())
-            conn.commit()
-            st.success(f"Imported {len(tmp)} entries!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Import failed: {e}")
+# ——— IMPORT — ALWAYS VISIBLE, LIKE BEFORE ———
+st.markdown("---")
+st.subheader("Import Old Data")
+uploaded = st.file_uploader("Upload backup CSV", type="csv")
+
+if uploaded:
+    try:
+        tmp = pd.read_csv(uploaded)
+        rename = {}
+        for col in tmp.columns:
+            l = col.strip().lower()
+            if "user" in l: rename[col] = "user"
+            if "date" in l: rename[col] = "date"
+            if "weight" in l or "lbs" in l: rename[col] = "weight"
+        tmp = tmp.rename(columns=rename)[["user","date","weight"]].dropna()
+        tmp = tmp[tmp["user"].isin(["Matthew","Jasmine"])]
+        tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+        tmp = tmp.dropna()
+        tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
+        c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", tmp.values.tolist())
+        conn.commit()
+        st.success(f"Imported {len(tmp)} entries!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Import failed: {e}")
 
 # ——— TOOLTIP ———
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
