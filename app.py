@@ -33,13 +33,13 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
               (user, date_input.strftime("%Y-%m-%d"), weight_input))
     conn.commit()
-    st.success(f"Logged {weight_input} lbs on {date_input:%b %d, %Y}")
+    st.success(f"Logged {weight_input:.1f} lbs on {date_input:%b %d, %Y}")
     st.rerun()
 
-# ——— ALWAYS-VISIBLE IMPORTER ———
+# ——— ALWAYS VISIBLE IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
-uploaded = st.file_uploader("Upload backup CSV (user, date, weight)", type="csv")
+uploaded = st.file_uploader("Upload backup CSV", type="csv")
 
 if uploaded:
     try:
@@ -73,7 +73,7 @@ df = df.sort_values("date").reset_index(drop=True)
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— DATE RANGE ———
+# ——— CHART WITH PERFECT X-AXIS & NO TOP-LEFT BUG ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
@@ -81,50 +81,84 @@ days_back = {"Week": 7, "30D": 30, "90D": 90, "Year": 365, "All": 99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
 
-if chart_df.empty:
-    st.info(f"No data in the last {view.lower()} yet")
-else:
-    # Smart X-axis
-    x_format = "%b %d" if view in ["Week", "30D"] else "%b %Y"
-    x_title = "Date" if view in ["Week", "30D"] else "Month"
+# Smart axis formatting
+if view == "Week":
+    x_format = "%b %d"
+    x_title = "Date"
+elif view == "30D":
+    x_format = "%b %d"
+    x_title = "Date"
+elif view == "90D":
+    x_format = "%b"
+    x_title = "Month"
+else:  # Year or All
+    x_format = "%Y"
+    x_title = "Year"
 
-    chart = alt.Chart(chart_df).mark_line(
-        strokeWidth=4,
-        point=alt.OverlayMarkDef(filled=True, size=300, stroke="white", strokeWidth=6)
-    ).encode(
-        x=alt.X("date:T", title=x_title, axis=alt.Axis(format=x_format, tickCount=6)),
-        y=alt.Y("weight:Q", title="Weight (lbs)"),
-        color=alt.Color("user:N",
-                        legend=alt.Legend(title=None, orient="top", direction="horizontal"),
-                        scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00E676","#FF5252"])),
-        tooltip=[
-            alt.Tooltip("user:N", title="Name"),
-            alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-            alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-            alt.Tooltip("tooltip_total:N", title="Total Change")
-        ]
-    ).properties(height=520).interactive()
+# Force proper domain + padding — kills the top-left bug forever
+w_min, w_max = chart_df["weight"].min(), chart_df["weight"].max()
+w_pad = max((w_max - w_min) * 0.15, 6)
+y_domain = [w_min - w_pad, w_max + w_pad]
 
-    st.altair_chart(chart, use_container_width=True)
+d_min, d_max = chart_df["date"].min(), chart_df["date"].max()
+d_pad = timedelta(days=max((d_max - d_min).days * 0.1, 3))
+x_domain = [d_min - d_pad, d_max + d_pad]
 
-# ——— DELETE ENTRY ———
-st.markdown("### Delete Entry")
-last_10 = df.sort_values("date", ascending=False).head(10).copy()
-last_10["date_str"] = last_10["date"].dt.strftime("%Y-%m-%d")
+chart = alt.Chart(chart_df).mark_line(
+    strokeWidth=4.5,
+    point=alt.OverlayMarkDef(filled=True, size=320, stroke="white", strokeWidth=6)
+).encode(
+    x=alt.X("date:T",
+            title=x_title,
+            axis=alt.Axis(format=x_format, tickCount=8, grid=False),
+            scale=alt.Scale(domain=x_domain)),
+    y=alt.Y("weight:Q",
+            title="Weight (lbs)",
+            scale=alt.Scale(domain=y_domain)),
+    color=alt.Color("user:N",
+                    legend=alt.Legend(title=None, orient="top"),
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00E676","#FF5252"])),
+    tooltip=[
+        alt.Tooltip("user:N", title="Name"),
+        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
+        alt.Tooltip("tooltip_total:N", title="Total Change")
+    ]
+).properties(height=520).interactive()
 
-if not last_10.empty:
-    delete_key = st.selectbox(
-        "Select entry to delete",
-        options=last_10.index,
-        format_func=lambda i: f"{last_10.loc[i, 'user']} — {last_10.loc[i, 'date']:%b %d, %Y} — {last_10.loc[i, 'weight']:.1f} lbs"
+st.altair_chart(chart, use_container_width=True)
+
+# ——— SLICK DELETE: FULL TABLE WITH SWIPE-TO-DELETE ———
+if st.button("View All Entries → Edit / Delete"):
+    st.subheader("All Weight Entries")
+    display_df = df.copy()
+    display_df["Date"] = display_df["date"].dt.strftime("%b %d, %Y")
+    display_df = display_df[["user", "Date", "weight"]].sort_values("date", ascending=False)
+
+    # Use st.data_editor with row selection
+    edited = st.data_editor(
+        display_df,
+        use_container_width=True,
+        hide_index=False,
+        column_config={
+            "weight": st.column_config.NumberColumn("Weight (lbs)", format="%.1f")
+        },
+        disabled=["user", "Date", "weight"]
     )
-    if st.button("Delete This Entry", type="secondary"):
-        delete_user = last_10.loc[delete_key, "user"]
-        delete_date = last_10.loc[delete_key, "date_str"]
-        c.execute("DELETE FROM weights WHERE user = ? AND date = ?", (delete_user, delete_date))
-        conn.commit()
-        st.success("Entry deleted!")
-        st.rerun()
+
+    selected_rows = st.session_state.get("selected_rows", [])
+    if st.button("Delete selected row(s)"):
+        if not selected_rows:
+            st.warning("Select a row first")
+        else:
+            for idx in selected_rows:
+                real_idx = display_df.index[idx]
+                del_user = df.loc[real_idx, "user"]
+                del_date = df.loc[real_idx, "date"].strftime("%Y-%m-%d")
+                c.execute("DELETE FROM weights WHERE user = ? AND date = ?", (del_user, del_date))
+            conn.commit()
+            st.success("Deleted!")
+            st.rerun()
 
 # ——— STATS ———
 def get_stats(person_df):
