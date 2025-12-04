@@ -104,7 +104,8 @@ st.header("Trend Chart")
 chart = alt.Chart(df).mark_line(point=True).encode(
     x='date:T', y='weight:Q', color='user:N', tooltip=['user','date','weight']
 ).properties(height=400).interactive()
-st.altair_chart(chart, use_container_width=True)
+st.altair_chart(chart, width="stretch")
 
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values('date', ascending=False).head(10)[['user','date','weight']])
+
