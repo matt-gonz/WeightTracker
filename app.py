@@ -14,78 +14,66 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— AUTO-SELECT USER FROM URL ———
+# ——— USER SELECTION ———
 params = st.query_params.to_dict()
+default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
-    default_index = 0 if params["user"] == "Matthew" else 1
-    user = st.sidebar.selectbox("Who am I?", options=["Matthew", "Jasmine"], index=default_index, key="user_select")
-else:
-    user = st.sidebar.selectbox("Who am I?", options=["Matthew", "Jasmine"], index=0, key="user_select")
+    default_user = params["user"]
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0 if default_user == "Matthew" else 1)
 
 # ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
-    date = st.date_input("Date", datetime.today())
+    date_input = st.date_input("Date", datetime.today())
 with col2:
-    weight = st.number_input("Weight (lbs)", min_value=50.0, max_value=500.0, step=0.1, value=150.0)
+    weight_input = st.number_input("Weight (lbs)", 50.0, 500.0, step=0.1, value=150.0)
 
 if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
-              (user, date.strftime("%Y-%m-%d"), weight))
+              (user, date_input.strftime("%Y-%m-%d"), weight_input))
     conn.commit()
     st.success("Logged!")
     st.rerun()
 
 # ——— LOAD DATA ———
 df = pd.read_sql_query("SELECT * FROM weights", conn)
-if not df.empty:
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.sort_values('date').reset_index(drop=True)
-
-# ——— IMPORT CSV ———
-st.markdown("---")
-st.subheader("Import Old Data")
-uploaded_file = st.file_uploader("Upload a backup CSV to restore everything", type="csv")
-
-if uploaded_file is not None:
-    try:
-        import_df = pd.read_csv(uploaded_file)
-        cols = [col.strip().lower() for col in import_df.columns]
-        user_col = date_col = weight_col = None
-        for i, col in enumerate(cols):
-            if "user" in col:   user_col = import_df.columns[i]
-            if "date" in col:   date_col = import_df.columns[i]
-            if "weight" in col: weight_col = import_df.columns[i]
-
-        if not all([user_col, date_col, weight_col]):
-            st.error("CSV must have columns containing 'User', 'Date', and 'Weight'")
-            st.stop()
-
-        import_df = import_df.rename(columns={user_col:"user", date_col:"date", weight_col:"weight"})
-        import_df = import_df[["user","date","weight"]].dropna()
-        import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
-        import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
-        import_df = import_df.dropna(subset=["date","weight"])
-        import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
-
-        c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", import_df.values.tolist())
-        conn.commit()
-        st.success(f"Imported {len(import_df)} entries!")
-        st.rerun()
-
-    except Exception as e:
-        st.error(f"Import failed: {e}")
-
 if df.empty:
-    st.info("No data yet — start logging or import a backup!")
+    st.info("No data yet — start logging!")
     st.stop()
 
-# ——— TOOLTIP DATA ———
-df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
-df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total" if pd.notna(x) else "")
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values("date").reset_index(drop=True)
 
-# ——— DATE RANGE FILTER ———
+# ——— IMPORT ———
+with st.expander("Import Old Data"):
+    uploaded = st.file_uploader("Upload backup CSV", type="csv")
+    if uploaded:
+        try:
+            tmp = pd.read_csv(uploaded)
+            rename = {}
+            for col in tmp.columns:
+                l = col.strip().lower()
+                if "user" in l: rename[col] = "user"
+                if "date" in l: rename[col] = "date"
+                if "weight" in l or "lbs" in l: rename[col] = "weight"
+            tmp = tmp.rename(columns=rename)[["user","date","weight"]].dropna()
+            tmp = tmp[tmp["user"].isin(["Matthew","Jasmine"])]
+            tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+            tmp = tmp.dropna()
+            tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
+            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", tmp.values.tolist())
+            conn.commit()
+            st.success(f"Imported {len(tmp)} entries!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Import failed: {e}")
+
+# ——— TOOLTIP ———
+df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
+df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
+
+# ——— DATE RANGE ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
@@ -93,57 +81,64 @@ days_back = {"Week": 7, "30D": 30, "90D": 90, "Year": 365, "All": 99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
 
-# ——— PERFECT GRAPH (FIXED 100%) ———
 if chart_df.empty:
-    st.info("No data in this time range yet")
+    st.info(f"No data in the last {view.lower()} yet")
+    st.stop()
+
+# ——— SMART X-AXIS: Days vs Months ———
+if view in ["Week", "30D"]:
+    x_format = "%b %d"
+    x_title = "Date"
 else:
-    # Padding for nice view even with 1 point
-    w_min = chart_df["weight"].min()
-    w_max = chart_df["weight"].max()
-    padding = max((w_max - w_min) * 0.1, 5)  # At least 5 lbs padding
-    y_domain = [w_min - padding, w_max + padding]
+    x_format = "%b %Y"
+    x_title = "Month"
 
-    d_min = chart_df["date"].min()
-    d_max = chart_df["date"].max()
-    date_padding = timedelta(days=max((d_max - d_min).days * 0.1, 1))
-    x_domain = [d_min - date_padding, d_max + date_padding]
+# ——— FINAL PERFECT CHART ———
+chart = alt.Chart(chart_df).mark_line(
+    strokeWidth=4,
+    point=alt.OverlayMarkDef(
+        filled=True,
+        size=300,
+        stroke="white",
+        strokeWidth=6
+    )
+).encode(
+    x=alt.X("date:T",
+            title=x_title,
+            axis=alt.Axis(format=x_format, tickCount=6)),
+    y=alt.Y("weight:Q", title="Weight (lbs)"),
+    color=alt.Color("user:N",
+                    legend=alt.Legend(title=None, orient="top", direction="horizontal"),
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00E676","#FF5252"])),
+    tooltip=[
+        alt.Tooltip("user:N", title="Name"),
+        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
+        alt.Tooltip("tooltip_total:N", title="Total Change")
+    ]
+).properties(
+    height=520
+).interactive()
 
-    chart = alt.Chart(chart_df).mark_line(
-        point=alt.OverlayMarkDef(size=200, filled=True)
-    ).encode(
-        x=alt.X("date:T", scale=alt.Scale(domain=x_domain)),
-        y=alt.Y("weight:Q", scale=alt.Scale(domain=y_domain)),
-        color=alt.Color("user:N", legend=alt.Legend(title="Person", orient="top", direction="horizontal")),
-        tooltip=[
-            alt.Tooltip("user:N", title="Who"),
-            alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-            alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-            alt.Tooltip("tooltip_total:N", title="Total Change")
-        ]
-    ).properties(
-        height=500
-    ).interactive()
-
-    st.altair_chart(chart, use_container_width=True)
+st.altair_chart(chart, use_container_width=True)
 
 # ——— STATS ———
-def get_stats(user_df):
-    if user_df.empty:
+def get_stats(person_df):
+    if person_df.empty:
         return {"latest":"—", "change":"—", "pct":"—", "rate":"—", "streak":0}
-    
-    user_df = user_df.sort_values("date").reset_index(drop=True)
-    start = user_df.iloc[0]["weight"]
-    latest = user_df.iloc[-1]["weight"]
+    p = person_df.sort_values("date").reset_index(drop=True)
+    start = p.iloc[0]["weight"]
+    latest = p.iloc[-1]["weight"]
     change = latest - start
-    pct = round(change / start * 100, 2)
+    pct = change / start * 100
     rate = "—"
-    if len(user_df) >= 14:
-        days = (user_df.iloc[-1]["date"] - user_df.iloc[-14]["date"]).days
+    if len(p) >= 14:
+        days = (p.iloc[-1]["date"] - p.iloc[-14]["date"]).days
         if days > 0:
-            rate = f"{(latest - user_df.iloc[-14]['weight']) * 7 / days:+.1f}"
+            rate = f"{(latest - p.iloc[-14]['weight']) * 7 / days:+.1f}"
     streak = 1
-    for i in range(len(user_df)-2, -1, -1):
-        if (user_df.iloc[i+1]["date"] - user_df.iloc[i]["date"]).days == 1:
+    for i in range(len(p)-2, -1, -1):
+        if (p.iloc[i+1]["date"] - p.iloc[i]["date"]).days == 1:
             streak += 1
         else:
             break
@@ -154,24 +149,27 @@ j = get_stats(df[df["user"] == "Jasmine"])
 
 # ——— STANDINGS ———
 st.header("Current Standings")
-c1, c2 = st.columns(2)
-with c1:
+col1, col2 = st.columns(2)
+with col1:
     st.subheader("Matthew")
-    st.metric("Latest", m["latest"] + " lbs" if m["latest"] != "—" else "—")
+    st.metric("Latest Weight", f"{m['latest']} lbs")
     st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
     st.write(f"**14-day rate:** {m['rate']} lbs/week")
     st.write(f"**Streak:** {m['streak']} days")
-with c2:
+with col2:
     st.subheader("Jasmine")
-    st.metric("Latest", j["latest"] + " lbs" if j["latest"] != "—" else "—")
+    st.metric("Latest Weight", f"{j['latest']} lbs")
     st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
     st.write(f"**14-day rate:** {j['rate']} lbs/week")
     st.write(f"**Streak:** {j['streak']} days")
 
+# ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
-st.download_button("Download Full Backup CSV",
-                   df.to_csv(index=False).encode(),
-                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
-                   "text/csv")
+st.download_button(
+    "Download Full Backup CSV",
+    data=df.to_csv(index=False).encode(),
+    file_name=f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+    mime="text/csv"
+)
