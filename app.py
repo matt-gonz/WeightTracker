@@ -55,7 +55,7 @@ if st.button("Log / Overwrite Weight"):
     conn.commit()
     
     # Automatic Google Sheets backup
-    if GOOGLE_SHEET_ID != "PUT_YOUR_SHEET_ID_HERE":
+    if GOOGLE_SHEET_ID != "1HguHMjbuAP1uZ9qgjlzkogbcLVgFyQ8XRwElmd6r8KU":
         append_to_google_sheet(user, date, weight_input)
     
     st.success(f"Logged {weight_input} lbs for {user} on {date}")
