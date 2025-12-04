@@ -19,8 +19,7 @@ params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
-user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
-                           index=0 if default_user == "Matthew" else 1)
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0 if default_user == "Matthew" else 1)
 
 # ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
@@ -37,7 +36,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# ——— IMPORTER ———
+# ——— IMPORTER ALWAYS VISIBLE ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -73,35 +72,34 @@ df = df.sort_values("date").reset_index(drop=True)
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— CHART — BUG IS DEAD ———
+# ——— DATE RANGE FILTER ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
-days_back = {"Week":7, "30D":30, "90D":90, "Year":365, "All":99999}[view]
+days_back = {"Week": 7, "30D": 30, "90D": 90, "Year": 365, "All": 99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
 
-# THE FIX: EXPLICIT DOMAIN ON BOTH AXES — THIS IS THE ONLY WAY
-y_min = chart_df["weight"].min() - 10
-y_max = chart_df["weight"].max() + 10
-x_min = chart_df["date"].min() - timedelta(days=3)
-x_max = chart_df["date"].max() + timedelta(days=3)
+# ——— SMART X-AXIS ———
+if view in ["Week", "30D"]:
+    x_format = "%b %d"
+    x_title = "Date"
+elif view == "90D":
+    x_format = "%b"
+    x_title = "Month"
+else:
+    x_format = "%Y"
+    x_title = "Year"
 
+# ——— PERFECT CHART (ALL DOTS VISIBLE, NO TOP-LEFT BUG) ———
 chart = alt.Chart(chart_df).mark_line(
-    strokeWidth=5,
-    point=alt.OverlayMarkDef(filled=True, size=400, stroke="white", strokeWidth=8)
+    strokeWidth=4,
+    point=alt.OverlayMarkDef(filled=True, size=300, stroke="white", strokeWidth=5)
 ).encode(
-    x=alt.X("date:T",
-            scale=alt.Scale(domain=[x_min, x_max]),
-            axis=alt.Axis(
-                format="%b %d" if view in ["Week", "30D"] else "%b %Y",
-                title=None
-            )),
-    y=alt.Y("weight:Q",
-            scale=alt.Scale(domain=[y_min, y_max]),
-            title="Weight (lbs)"),
+    x=alt.X("date:T", title=x_title, axis=alt.Axis(format=x_format, tickCount=6)),
+    y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(zero=False)),
     color=alt.Color("user:N",
-                    legend=alt.Legend(title=None, orient="top"),
+                    legend=alt.Legend(title=None, orient="top", direction="horizontal"),
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
     tooltip=[
         alt.Tooltip("user:N", title="Name"),
@@ -115,7 +113,7 @@ chart = alt.Chart(chart_df).mark_line(
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— VIEW ALL + DELETE ———
+# ——— VIEW ALL + DELETE (SLICK WITH SWIPE ON MOBILE) ———
 if st.button("View All Entries → Edit / Delete"):
     st.subheader("All Weight Entries")
     disp = df.copy()
@@ -126,14 +124,12 @@ if st.button("View All Entries → Edit / Delete"):
         disp,
         use_container_width=True,
         hide_index=False,
-        key="editor_all"
+        key="editor"
     )
 
-    if st.button("Delete Selected Row(s)", type="secondary"):
-        selected = st.session_state.editor_all.get("selected_rows", [])
-        if not selected:
-            st.warning("Select row(s) first")
-        else:
+    selected = st.session_state.editor.get("selected_rows", [])
+    if selected:
+        if st.button("Delete Selected Row(s)", type="secondary"):
             for row in selected:
                 idx = row["_index"]
                 del_user = df.iloc[idx]["user"]
@@ -143,11 +139,13 @@ if st.button("View All Entries → Edit / Delete"):
             st.success("Deleted!")
             st.rerun()
 
-# ——— STATS & STANDINGS ———
-def get_stats(p):
-    if p.empty: return {"latest":"—","change":"—","pct":"—","rate":"—","streak":0}
-    p = p.sort_values("date").reset_index(drop=True)
-    start, latest = p.iloc[0]["weight"], p.iloc[-1]["weight"]
+# ——— STATS ———
+def get_stats(person_df):
+    if person_df.empty:
+        return {"latest":"—", "change":"—", "pct":"—", "rate":"—", "streak":0}
+    p = person_df.sort_values("date").reset_index(drop=True)
+    start = p.iloc[0]["weight"]
+    latest = p.iloc[-1]["weight"]
     change = latest - start
     rate = "—"
     if len(p) >= 14:
@@ -158,21 +156,23 @@ def get_stats(p):
     for i in range(len(p)-2, -1, -1):
         if (p.iloc[i+1]["date"] - p.iloc[i]["date"]).days == 1:
             streak += 1
-        else: break
+        else:
+            break
     return {"latest":f"{latest:.1f}", "change":f"{change:+.1f}", "pct":f"{change/start*100:+.1f}%", "rate":rate, "streak":streak}
 
-m = get_stats(df[df["user"]=="Matthew"])
-j = get_stats(df[df["user"]=="Jasmine"])
+m = get_stats(df[df["user"] == "Matthew"])
+j = get_stats(df[df["user"] == "Jasmine"])
 
+# ——— STANDINGS ———
 st.header("Current Standings")
-c1, c2 = st.columns(2)
-with c1:
+col1, col2 = st.columns(2)
+with col1:
     st.subheader("Matthew")
     st.metric("Latest Weight", f"{m['latest']} lbs")
     st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
     st.write(f"**14-day rate:** {m['rate']} lbs/week")
     st.write(f"**Streak:** {m['streak']} days")
-with c2:
+with col2:
     st.subheader("Jasmine")
     st.metric("Latest Weight", f"{j['latest']} lbs")
     st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
@@ -182,5 +182,7 @@ with c2:
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
-st.download_button("Download Full Backup CSV", df.to_csv(index=False).encode(),
-                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv", "text/csv")
+st.download_button("Download Full Backup CSV",
+                   df.to_csv(index=False).encode(),
+                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+                   "text/csv")
