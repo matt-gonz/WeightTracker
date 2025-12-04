@@ -39,7 +39,7 @@ df = pd.read_sql_query("SELECT * FROM weights", conn)
 if not df.empty:
     df['date'] = pd.to_datetime(df['date'])
 
-# ——— IMPORT CSV (STRICT: skips any row missing User/Date/Weight) ———
+# ——— IMPORT CSV (SUPER FORGIVING + SKIPS BLANK WEIGHTS) ———
 st.markdown("---")
 st.subheader("Import Your Old Data")
 uploaded_file = st.file_uploader("Upload a backup CSV to restore", type="csv")
@@ -48,23 +48,33 @@ if uploaded_file is not None:
     try:
         import_df = pd.read_csv(uploaded_file)
 
-        # Normalize column names
-        import_df = import_df.rename(columns=lambda x: x.strip().lower())
-        col_map = {
-            col: new_name for col in import_df.columns
-            for new_name in ["user", "date", "weight"]
-            if new_name in col or "weight" in col or col in ["user", "date", "weight"]
-        }
-        import_df = import_df.rename(columns=col_map)
+        # Very forgiving column detection
+        cols = [col.strip().lower() for col in import_df.columns]
+        user_col = date_col = weight_col = None
+        for i, col in enumerate(cols):
+            if "user" in col:
+                user_col = import_df.columns[i]
+            if "date" in col:
+                date_col = import_df.columns[i]
+            if "weight" in col:
+                weight_col = import_df.columns[i]
 
-        # Must have all three columns
-        if not all(col in import_df.columns for col in ["user", "date", "weight"]):
-            st.error("CSV must contain columns: User, Date, Weight")
+        if not all([user_col, date_col, weight_col]):
+            st.error("CSV must contain columns with 'User', 'Date', and 'Weight' in the name")
             st.stop()
 
-        # Clean data — drop any row missing even one value
+        # Clean and validate
+        import_df = import_df.rename(columns={
+            user_col: "user",
+            date_col: "date",
+            weight_col: "weight"
+        })
+
         before = len(import_df)
-        import_df = import_df[["user", "date", "weight"]].dropna()
+        import_df = import_df[["user", "date", "weight"]]
+
+        # Drop rows missing ANY required field
+        import_df = import_df.dropna(subset=["user", "date", "weight"])
         import_df = import_df[import_df["user"].isin(["Matthew", "Jasmine"])]
         import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
         import_df = import_df.dropna(subset=["date"])
@@ -73,12 +83,12 @@ if uploaded_file is not None:
         import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
 
         if len(import_df) == 0:
-            st.error("No valid entries found in the CSV.")
+            st.error("No valid entries found (check for blank weights/dates)")
         else:
             skipped = before - len(import_df)
             c.executemany("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)", import_df.values.tolist())
             conn.commit()
-            st.success(f"Imported {len(import_df)} entries! (skipped {skipped} invalid/missing rows)")
+            st.success(f"Imported {len(import_df)} entries! (skipped {skipped} invalid/blank rows)")
             st.rerun()
 
     except Exception as e:
@@ -89,7 +99,7 @@ if df.empty and uploaded_file is None:
     st.info("No data yet — start logging or import a backup!")
     st.stop()
 
-# ——— STATS ———
+# ——— STATS (unchanged) ———
 def get_stats(user_df):
     if user_df.empty:
         return {"latest":"—","start":"—","change":"—","pct":"—","rate":"—","streak":0}
@@ -118,7 +128,7 @@ jas  = df[df['user'] == "Jasmine"]
 m = get_stats(matt)
 j = get_stats(jas)
 
-# ——— DISPLAY ———
+# ——— DISPLAY (unchanged) ———
 st.header("Current Standings")
 c1, c2 = st.columns(2)
 with c1:
@@ -145,17 +155,13 @@ st.altair_chart(chart, width="stretch")
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values('date', ascending=False).head(10)[['user','date','weight']], hide_index=True)
 
-# ——— BACKUP + IMPORT ———
+# ——— BACKUP BUTTON ———
 st.markdown("---")
 st.subheader("Data Safety")
-col1, col2 = st.columns(2)
-with col1:
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Download Backup CSV",
-        data=csv,
-        file_name=f"weight_duel_backup_{datetime.now().strftime('%Y-%m-%d')}.csv",
-        mime="text/csv"
-    )
-with col2:
-    st.caption("Download monthly  Restore anytime")
+csv = df.to_csv(index=False).encode('utf-8')
+st.download_button(
+    label="Download Backup CSV",
+    data=csv,
+    file_name=f"weight_duel_backup_{datetime.now().strftime('%Y-%m-%d')}.csv",
+    mime="text/csv"
+)
