@@ -14,13 +14,13 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER SELECTION (Matthew default) ———
+# ——— USER SELECTION ———
 params = st.query_params.to_dict()
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_index = 0 if params["user"] == "Matthew" else 1
-    user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=default_index)
 else:
-    user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0)
+    default_index = 0
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=default_index)
 
 # ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
@@ -37,144 +37,127 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# ——— LOAD DATA ———
+# ——— LOAD & PREPARE DATA ———
 df = pd.read_sql_query("SELECT * FROM weights", conn)
-if not df.empty:
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
-
-# ——— IMPORT TOOL ———
-st.markdown("---")
-st.subheader("Import Old Data")
-uploaded_file = st.file_uploader("Upload a backup CSV", type="csv")
-
-if uploaded_file is not None:
-    try:
-        import_df = pd.read_csv(uploaded_file)
-        cols = [col.strip().lower() for col in import_df.columns]
-        user_col = date_col = weight_col = None
-        for i, col in enumerate(cols):
-            if "user" in col:   user_col = import_df.columns[i]
-            if "date" in col:   date_col = import_df.columns[i]
-            if "weight" in col: weight_col = import_df.columns[i]
-
-        if not all([user_col, date_col, weight_col]):
-            st.error("CSV must have columns containing 'User', 'Date', and 'Weight'")
-            st.stop()
-
-        import_df = import_df.rename(columns={user_col:"user", date_col:"date", weight_col:"weight"})
-        import_df = import_df[["user","date","weight"]].dropna()
-        import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
-        import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
-        import_df = import_df.dropna(subset=["date","weight"])
-        import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
-
-        c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", import_df.values.tolist())
-        conn.commit()
-        st.success(f"Imported {len(import_df)} entries!")
-        st.rerun()
-    except Exception as e:
-        st.error(f"Import failed: {e}")
-
 if df.empty:
     st.info("No data yet — start logging or import a backup!")
     st.stop()
 
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values("date").reset_index(drop=True)
+
+# ——— IMPORT TOOL ———
+st.markdown("---")
+st.subheader("Import Old Data")
+uploaded = st.file_uploader("Upload backup CSV", type="csv")
+if uploaded:
+    try:
+        tmp = pd.read_csv(uploaded)
+        cols = [c.strip().lower() for c in tmp.columns]
+        rename_map = {}
+        for c in tmp.columns:
+            l = c.strip().lower()
+            if "user" in l:  rename_map[c] = "user"
+            if "date" in l:  rename_map[c] = "date"
+            if "weight" in l: rename_map[c] = "weight"
+        tmp = tmp.rename(columns=rename_map)[["user","date","weight"]].dropna()
+        tmp = tmp[tmp["user"].isin(["Matthew","Jasmine"])]
+        tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+        tmp = tmp.dropna()
+        tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
+        c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", tmp.values.tolist())
+        conn.commit()
+        st.success(f"Imported {len(tmp)} rows")
+        st.rerun()
+    except:
+        st.error("Import failed — check your CSV")
+
 # ——— TOOLTIP DATA ———
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
-df["change_prev"] = df.groupby("user")["weight"].diff()
-df["days_gap"] = df.groupby("user")["date"].diff().dt.days
-
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
-df["tooltip_prev"] = df.apply(
-    lambda r: f"{r['change_prev']:+.1f} lbs in {int(r['days_gap'])}d" if pd.notna(r['change_prev']) else "", axis=1
-)
 
-# ——— DATE RANGE FILTER ———
+# ——— DATE RANGE ———
 st.markdown("### Trend Chart")
-view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
-days_back = {"Week":7, "30D":30, "90D":90, "Year":365, "All":99999}[view]
-cutoff = datetime.now() - timedelta(days=days_back)
+view = st.radio("View", ["Week","30D","90D","Year","All"], horizontal=True, index=1)
+days = {"Week":7, "30D":30, "90D":90, "Year":365, "All":99999}[view]
+cutoff = datetime.now() - timedelta(days=days)
 chart_df = df[df["date"] >= cutoff].copy()
 
-# ——— FIXED CHART (no more tiny dot!) ———
-chart = alt.Chart(chart_df).mark_line(
-    point=alt.OverlayMarkDef(size=180, filled=True, fillOpacity=1)
+# ——— THE BULLETPROOF CHART FIX ———
+if len(chart_df) == 0:
+    st.info("No data in this time range yet")
+    st.stop()
+
+# Force nice axis limits even with 1 or 2 points
+weight_min = chart_df["weight"].min() - 5
+weight_max = chart_df["weight"].max() + 5
+date_min = chart_df["date"].min() - timedelta(days=1)
+date_max = chart_df["date"].max() + timedelta(days=1)
+
+base = alt.Chart(chart_df).mark_line(
+    point=alt.OverlayMarkDef(color="white", size=200, strokeWidth=4)
 ).encode(
-    x=alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d")),
-    y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(zero=False)),
-    color=alt.Color("user:N", title="Person",
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00CC96","#FF6B6B"])),
+    x=alt.X("date:T", title="Date",
+            scale=alt.Scale(domain=[date_min, date_max])),
+    y=alt.Y("weight:Q", title="Weight (lbs)",
+            scale=alt.Scale(domain=[weight_min, weight_max])),
+    color=alt.Color("user:N", legend=alt.Legend(title=""),
+                    scale=alt.Scale(domain=["Matthew","Jasmine"],
+                                    range=["#00CC96","#FF6B6B"])),
     tooltip=[
         alt.Tooltip("user:N", title="Who"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
         alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-        alt.Tooltip("tooltip_total:N", title="Total Change"),
-        alt.Tooltip("tooltip_prev:N", title="Since Last")
+        alt.Tooltip("tooltip_total:N", title="Total Change")
     ]
 ).properties(
-    height=500,
-    width="container"
-).interactive(bind_y=False)   # prevents weird vertical squishing
+    height=500
+).interactive(bind_y=False)
 
-st.altair_chart(chart, use_container_width=True)
+st.altair_chart(base, use_container_width=True)
 
-# ——— STATS (with +/− on 14-day rate) ———
-def get_stats(user_df):
-    user_df = user_df.sort_values("date").reset_index(drop=True)
-    start = user_df["weight"].iloc[0]
-    latest = user_df["weight"].iloc[-1]
+# ——— STATS (with proper +/− on rate) ———
+def get_stats(u):
+    u = u.sort_values("date").reset_index(drop=True)
+    start = u.iloc[0]["weight"]
+    latest = u.iloc[-1]["weight"]
     change = latest - start
-    pct = round(change/start*100, 2)
-
     rate = 0.0
-    if len(user_df) >= 14:
-        w14 = user_df["weight"].iloc[-14]
-        days = (user_df["date"].iloc[-1] - user_df["date"].iloc[-14]).days
+    if len(u) >= 14:
+        days = (u.iloc[-1]["date"] - u.iloc[-14]["date"]).days
         if days > 0:
-            rate = round((latest - w14) * 7 / days, 2)
-
-    streak = 1
-    for i in range(len(user_df)-2, -1, -1):
-        if (user_df["date"].iloc[i+1] - user_df["date"].iloc[i]).days == 1:
-            streak += 1
-        else:
-            break
-
+            rate = round((latest - u.iloc[-14]["weight"]) * 7 / days, 1)
     return {
-        "latest": latest,
+        "latest": f"{latest:.1f}",
         "change": f"{change:+.1f}",
-        "pct": f"{pct:+.1f}%",
-        "rate": f"{rate:+.1f}",        # ← now shows + or − correctly
-        "streak": streak
+        "pct": f"{change/start*100:+.1f}%",
+        "rate": f"{rate:+.1f}",
+        "streak": sum(1 for i in range(1,len(u)) if (u.iloc[i]["date"]-u.iloc[i-1]["date"]).days==1) + 1
     }
 
-m = get_stats(df[df["user"] == "Matthew"])
-j = get_stats(df[df["user"] == "Jasmine"])
+m = get_stats(df[df["user"]=="Matthew"])
+j = get_stats(df[df["user"]=="Jasmine"])
 
-# ——— STANDINGS ———
 st.header("Current Standings")
 c1, c2 = st.columns(2)
 with c1:
     st.subheader("Matthew")
-    st.metric("Latest Weight", f"{m['latest']:.1f} lbs")
+    st.metric("Latest", m["latest"] + " lbs")
     st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
     st.write(f"**14-day rate:** {m['rate']} lbs/week")
     st.write(f"**Streak:** {m['streak']} days")
 with c2:
     st.subheader("Jasmine")
-    st.metric("Latest Weight", f"{j['latest']:.1f} lbs")
+    st.metric("Latest", j["latest"] + " lbs")
     st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
     st.write(f"**14-day rate:** {j['rate']} lbs/week")
     st.write(f"**Streak:** {j['streak']} days")
 
-# ——— LAST 10 & BACKUP ———
+# ——— LAST 10 + BACKUP ———
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
-st.download_button(
-    "Download Full Backup CSV",
-    data=df.to_csv(index=False).encode(),
-    file_name=f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
-    mime="text/csv"
-)
+st.download_button("Download Full Backup CSV",
+                   df.to_csv(index=False).encode(),
+                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+                   "text/csv")
