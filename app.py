@@ -34,14 +34,13 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
               (user, date_input.strftime("%Y-%m-%d"), weight_input))
     conn.commit()
-    st.success(f"Logged {weight_input:.1f} lbs")
+    st.success("Logged!")
     st.rerun()
 
-# ——— ALWAYS VISIBLE IMPORTER ———
+# ——— IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
-
 if uploaded:
     try:
         tmp = pd.read_csv(uploaded)
@@ -74,82 +73,81 @@ df = df.sort_values("date").reset_index(drop=True)
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— PERFECT CHART — NO MORE TOP-LEFT BUG ———
+# ——— CHART — BUG IS DEAD ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
-days_back = {"Week": 7, "30D": 30, "90D": 90, "Year": 365, "All": 99999}[view]
+days_back = {"Week":7, "30D":30, "90D":90, "Year":365, "All":99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
 
-# Smart axis
-if view in ["Week", "30D"]:
-    x_axis = alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d"))
-elif view == "90D":
-    x_axis = alt.X("month(date):O", title="Month", axis=alt.Axis(format="%b"))
-else:
-    x_axis = alt.X("year(date):O", title="Year", axis=alt.Axis(format="%Y"))
+# THE FIX: EXPLICIT DOMAIN ON BOTH AXES — THIS IS THE ONLY WAY
+y_min = chart_df["weight"].min() - 10
+y_max = chart_df["weight"].max() + 10
+x_min = chart_df["date"].min() - timedelta(days=3)
+x_max = chart_df["date"].max() + timedelta(days=3)
 
-# Final bulletproof chart
 chart = alt.Chart(chart_df).mark_line(
     strokeWidth=5,
-    point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
+    point=alt.OverlayMarkDef(filled=True, size=400, stroke="white", strokeWidth=8)
 ).encode(
-    x=x_axis,
-    y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(zero=False)),
+    x=alt.X("date:T",
+            scale=alt.Scale(domain=[x_min, x_max]),
+            axis=alt.Axis(
+                format="%b %d" if view in ["Week", "30D"] else "%b %Y",
+                title=None
+            )),
+    y=alt.Y("weight:Q",
+            scale=alt.Scale(domain=[y_min, y_max]),
+            title="Weight (lbs)"),
     color=alt.Color("user:N",
                     legend=alt.Legend(title=None, orient="top"),
-                    scale=alt.Scale(domain=["Matthew", "Jasmine"], 
-                                    range=["#1E90FF", "#FF69B4"])),  # Blue & Hot Pink
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
     tooltip=[
         alt.Tooltip("user:N", title="Name"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
         alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
         alt.Tooltip("tooltip_total:N", title="Total Change")
     ]
-).properties(height=520).interactive()
+).properties(
+    height=520
+).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— VIEW ALL + DELETE (NOW WORKS 100%) ———
+# ——— VIEW ALL + DELETE ———
 if st.button("View All Entries → Edit / Delete"):
     st.subheader("All Weight Entries")
-    display_df = df.copy()
-    display_df["Date"] = display_df["date"].dt.strftime("%b %d, %Y")
-    display_df = display_df[["user", "Date", "weight"]].sort_values("date", ascending=False)
+    disp = df.copy()
+    disp["Date"] = disp["date"].dt.strftime("%b %d, %Y")
+    disp = disp[["user", "Date", "weight"]].sort_values("date", ascending=False)
 
     edited = st.data_editor(
-        display_df,
-        num_rows="dynamic",
+        disp,
         use_container_width=True,
         hide_index=False,
-        column_config={
-            "weight": st.column_config.NumberColumn("Weight (lbs)", format="%.1f")
-        },
-        key="data_editor"
+        key="editor_all"
     )
 
     if st.button("Delete Selected Row(s)", type="secondary"):
-        selected = st.session_state.data_editor["selected_rows"]
+        selected = st.session_state.editor_all.get("selected_rows", [])
         if not selected:
-            st.warning("Please select one or more rows")
+            st.warning("Select row(s) first")
         else:
             for row in selected:
                 idx = row["_index"]
                 del_user = df.iloc[idx]["user"]
                 del_date = df.iloc[idx]["date"].strftime("%Y-%m-%d")
-                c.execute("DELETE FROM weights WHERE user = ? AND date = ?", (del_user, del_date))
+                c.execute("DELETE FROM weights WHERE user=? AND date=?", (del_user, del_date))
             conn.commit()
             st.success("Deleted!")
             st.rerun()
 
-# ——— STATS ———
-def get_stats(person_df):
-    if person_df.empty:
-        return {"latest":"—", "change":"—", "pct":"—", "rate":"—", "streak":0}
-    p = person_df.sort_values("date").reset_index(drop=True)
-    start = p.iloc[0]["weight"]
-    latest = p.iloc[-1]["weight"]
+# ——— STATS & STANDINGS ———
+def get_stats(p):
+    if p.empty: return {"latest":"—","change":"—","pct":"—","rate":"—","streak":0}
+    p = p.sort_values("date").reset_index(drop=True)
+    start, latest = p.iloc[0]["weight"], p.iloc[-1]["weight"]
     change = latest - start
     rate = "—"
     if len(p) >= 14:
@@ -160,36 +158,29 @@ def get_stats(person_df):
     for i in range(len(p)-2, -1, -1):
         if (p.iloc[i+1]["date"] - p.iloc[i]["date"]).days == 1:
             streak += 1
-        else:
-            break
+        else: break
     return {"latest":f"{latest:.1f}", "change":f"{change:+.1f}", "pct":f"{change/start*100:+.1f}%", "rate":rate, "streak":streak}
 
-m = get_stats(df[df["user"] == "Matthew"])
-j = get_stats(df[df["user"] == "Jasmine"])
+m = get_stats(df[df["user"]=="Matthew"])
+j = get_stats(df[df["user"]=="Jasmine"])
 
-# ——— STANDINGS ———
 st.header("Current Standings")
-col1, col2 = st.columns(2)
-with col1:
+c1, c2 = st.columns(2)
+with c1:
     st.subheader("Matthew")
     st.metric("Latest Weight", f"{m['latest']} lbs")
     st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
     st.write(f"**14-day rate:** {m['rate']} lbs/week")
     st.write(f"**Streak:** {m['streak']} days")
-with col2:
+with c2:
     st.subheader("Jasmine")
     st.metric("Latest Weight", f"{j['latest']} lbs")
     st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
     st.write(f"**14-day rate:** {j['rate']} lbs/week")
     st.write(f"**Streak:** {j['streak']} days")
 
-# ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
-st.download_button(
-    "Download Full Backup CSV",
-    data=df.to_csv(index=False).encode(),
-    file_name=f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
-    mime="text/csv"
-)
+st.download_button("Download Full Backup CSV", df.to_csv(index=False).encode(),
+                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv", "text/csv")
