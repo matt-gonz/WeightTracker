@@ -33,22 +33,13 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
               (user, date_input.strftime("%Y-%m-%d"), weight_input))
     conn.commit()
-    st.success("Logged!")
+    st.success(f"Logged {weight_input} lbs on {date_input:%b %d, %Y}")
     st.rerun()
 
-# ——— LOAD DATA ———
-df = pd.read_sql_query("SELECT * FROM weights", conn)
-if df.empty:
-    st.info("No data yet — start logging!")
-    st.stop()
-
-df["date"] = pd.to_datetime(df["date"])
-df = df.sort_values("date").reset_index(drop=True)
-
-# ——— IMPORT — ALWAYS VISIBLE, LIKE BEFORE ———
+# ——— ALWAYS-VISIBLE IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
-uploaded = st.file_uploader("Upload backup CSV", type="csv")
+uploaded = st.file_uploader("Upload backup CSV (user, date, weight)", type="csv")
 
 if uploaded:
     try:
@@ -71,7 +62,14 @@ if uploaded:
     except Exception as e:
         st.error(f"Import failed: {e}")
 
-# ——— TOOLTIP ———
+# ——— LOAD DATA ———
+df = pd.read_sql_query("SELECT * FROM weights", conn)
+if df.empty:
+    st.info("No data yet — start logging!")
+    st.stop()
+
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values("date").reset_index(drop=True)
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
@@ -85,44 +83,48 @@ chart_df = df[df["date"] >= cutoff].copy()
 
 if chart_df.empty:
     st.info(f"No data in the last {view.lower()} yet")
-    st.stop()
-
-# ——— SMART X-AXIS: Days vs Months ———
-if view in ["Week", "30D"]:
-    x_format = "%b %d"
-    x_title = "Date"
 else:
-    x_format = "%b %Y"
-    x_title = "Month"
+    # Smart X-axis
+    x_format = "%b %d" if view in ["Week", "30D"] else "%b %Y"
+    x_title = "Date" if view in ["Week", "30D"] else "Month"
 
-# ——— FINAL PERFECT CHART ———
-chart = alt.Chart(chart_df).mark_line(
-    strokeWidth=4,
-    point=alt.OverlayMarkDef(
-        filled=True,
-        size=300,
-        stroke="white",
-        strokeWidth=6
+    chart = alt.Chart(chart_df).mark_line(
+        strokeWidth=4,
+        point=alt.OverlayMarkDef(filled=True, size=300, stroke="white", strokeWidth=6)
+    ).encode(
+        x=alt.X("date:T", title=x_title, axis=alt.Axis(format=x_format, tickCount=6)),
+        y=alt.Y("weight:Q", title="Weight (lbs)"),
+        color=alt.Color("user:N",
+                        legend=alt.Legend(title=None, orient="top", direction="horizontal"),
+                        scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00E676","#FF5252"])),
+        tooltip=[
+            alt.Tooltip("user:N", title="Name"),
+            alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+            alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
+            alt.Tooltip("tooltip_total:N", title="Total Change")
+        ]
+    ).properties(height=520).interactive()
+
+    st.altair_chart(chart, use_container_width=True)
+
+# ——— DELETE ENTRY ———
+st.markdown("### Delete Entry")
+last_10 = df.sort_values("date", ascending=False).head(10).copy()
+last_10["date_str"] = last_10["date"].dt.strftime("%Y-%m-%d")
+
+if not last_10.empty:
+    delete_key = st.selectbox(
+        "Select entry to delete",
+        options=last_10.index,
+        format_func=lambda i: f"{last_10.loc[i, 'user']} — {last_10.loc[i, 'date']:%b %d, %Y} — {last_10.loc[i, 'weight']:.1f} lbs"
     )
-).encode(
-    x=alt.X("date:T",
-            title=x_title,
-            axis=alt.Axis(format=x_format, tickCount=6)),
-    y=alt.Y("weight:Q", title="Weight (lbs)"),
-    color=alt.Color("user:N",
-                    legend=alt.Legend(title=None, orient="top", direction="horizontal"),
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00E676","#FF5252"])),
-    tooltip=[
-        alt.Tooltip("user:N", title="Name"),
-        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-        alt.Tooltip("tooltip_total:N", title="Total Change")
-    ]
-).properties(
-    height=520
-).interactive()
-
-st.altair_chart(chart, use_container_width=True)
+    if st.button("Delete This Entry", type="secondary"):
+        delete_user = last_10.loc[delete_key, "user"]
+        delete_date = last_10.loc[delete_key, "date_str"]
+        c.execute("DELETE FROM weights WHERE user = ? AND date = ?", (delete_user, delete_date))
+        conn.commit()
+        st.success("Entry deleted!")
+        st.rerun()
 
 # ——— STATS ———
 def get_stats(person_df):
@@ -132,7 +134,6 @@ def get_stats(person_df):
     start = p.iloc[0]["weight"]
     latest = p.iloc[-1]["weight"]
     change = latest - start
-    pct = change / start * 100
     rate = "—"
     if len(p) >= 14:
         days = (p.iloc[-1]["date"] - p.iloc[-14]["date"]).days
@@ -144,7 +145,7 @@ def get_stats(person_df):
             streak += 1
         else:
             break
-    return {"latest":f"{latest:.1f}", "change":f"{change:+.1f}", "pct":f"{pct:+.1f}%", "rate":rate, "streak":streak}
+    return {"latest":f"{latest:.1f}", "change":f"{change:+.1f}", "pct":f"{change/start*100:+.1f}%", "rate":rate, "streak":streak}
 
 m = get_stats(df[df["user"] == "Matthew"])
 j = get_stats(df[df["user"] == "Jasmine"])
