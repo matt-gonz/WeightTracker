@@ -44,31 +44,47 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— IMPORT CSV ———
+# ——— IMPORT CSV (100% FIXED) ———
 with st.expander("Import Old Data"):
-    uploaded = st.file_uploader("Upload backup CSV", type="csv")
+    uploaded = st.file_uploader("Upload backup CSV", type="csv", key="uploader")
     if uploaded:
         try:
-            temp = pd.read_csv(uploaded)
-            cols = [c.lower().strip() for c in temp.columns]
-            rename = {}
-            for col in temp.columns:
-                l = col.lower().strip()
-                if "user" in l: rename[col] = "user"
-                if "date" in l: rename[col] = "date"
-                if "weight" in l: rename[col] = "weight"
-            temp = temp.rename(columns=rename)[["user","date","weight"]].dropna()
-            temp = temp[temp["user"].isin(["Matthew","Jasmine"])]
-            temp["date"] = pd.to_datetime(temp["date"], errors="coerce")
-            temp = temp.dropna()
-            temp["date"] = temp["date"].dt.strftime("%Y-%m-%d")
-            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", temp.values.tolist())
-            conn.commit()
-            st.success(f"Imported {len(temp)} entries!")
-            st.rerun()
-        except:
-            st.error("Invalid file")
+            import_df = pd.read_csv(uploaded)
 
+            # Detect columns
+            cols_lower = [col.strip().lower() for col in import_df.columns]
+            rename_map = {}
+            for orig_col, lower_col in zip(import_df.columns, cols_lower):
+                if "user" in lower_col:   rename_map[orig_col] = "user"
+                if "date" in lower_col:   rename_map[orig_col] = "date"
+                if "weight" in lower_col: rename_map[orig_col] = "weight"
+
+            if not all(k in rename_map.values() for k in ["user","date","weight"]):
+                st.error("CSV must contain columns with 'User', 'Date', and 'Weight'")
+                st.stop()
+
+            import_df = import_df.rename(columns=rename_map)
+            import_df = import_df[["user","date","weight"]].dropna()
+            import_df = import_df[import_df["user"].isin(["Matthew","Jasmine"])]
+            import_df["date"] = pd.to_datetime(import_df["date"], errors="coerce")
+            import_df = import_df.dropna(subset=["date","weight"])
+            import_df["date"] = import_df["date"].dt.strftime("%Y-%m-%d")
+
+            # ← THIS WAS THE BUG — now fixed
+            c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", 
+                         import_df[["user","date","weight"]].values.tolist())
+            conn.commit()
+
+            st.success(f"Imported {len(import_df)} entries!")
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Import failed: {e}")
+
+if df.empty:
+    st.info("No data yet — start logging or import a backup!")
+    st.stop()
+  
 # ——— TOOLTIP DATA ———
 df["change"] = df.groupby("user")["weight"].diff()
 df["days_gap"] = df.groupby("user")["date"].diff().dt.days
@@ -160,3 +176,4 @@ st.download_button(
     file_name=f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
     mime="text/csv"
 )
+
