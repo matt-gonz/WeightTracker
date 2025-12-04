@@ -28,8 +28,9 @@ def append_to_google_sheet(user, date, weight):
         client = get_gspread_client()
         sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
         sheet.append_row([user, date.strftime("%Y-%m-%d"), weight])
+        st.info("Backup succeeded!")  # Visible in app
     except Exception as e:
-        st.warning("Google Sheets backup failed (still saved locally)")
+        st.error(f"Backup failed: {str(e)}")  # Shows error in app
 
 # ———————————— LOCAL DATABASE ————————————
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
@@ -119,3 +120,4 @@ st.altair_chart(chart, use_container_width=True)
 
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values('date', ascending=False).head(10))
+
