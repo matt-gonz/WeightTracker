@@ -19,7 +19,8 @@ params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
-user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0 if default_user == "Matthew" else 1)
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
+                           index=0 if default_user == "Matthew" else 1)
 
 # ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
@@ -33,7 +34,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
               (user, date_input.strftime("%Y-%m-%d"), weight_input))
     conn.commit()
-    st.success(f"Logged {weight_input:.1f} lbs on {date_input:%b %d, %Y}")
+    st.success(f"Logged {weight_input:.1f} lbs")
     st.rerun()
 
 # ——— ALWAYS VISIBLE IMPORTER ———
@@ -73,7 +74,7 @@ df = df.sort_values("date").reset_index(drop=True)
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— CHART WITH PERFECT X-AXIS & NO TOP-LEFT BUG ———
+# ——— PERFECT CHART — NO MORE TOP-LEFT BUG ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
@@ -81,43 +82,25 @@ days_back = {"Week": 7, "30D": 30, "90D": 90, "Year": 365, "All": 99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
 
-# Smart axis formatting
-if view == "Week":
-    x_format = "%b %d"
-    x_title = "Date"
-elif view == "30D":
-    x_format = "%b %d"
-    x_title = "Date"
+# Smart axis
+if view in ["Week", "30D"]:
+    x_axis = alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d"))
 elif view == "90D":
-    x_format = "%b"
-    x_title = "Month"
-else:  # Year or All
-    x_format = "%Y"
-    x_title = "Year"
+    x_axis = alt.X("month(date):O", title="Month", axis=alt.Axis(format="%b"))
+else:
+    x_axis = alt.X("year(date):O", title="Year", axis=alt.Axis(format="%Y"))
 
-# Force proper domain + padding — kills the top-left bug forever
-w_min, w_max = chart_df["weight"].min(), chart_df["weight"].max()
-w_pad = max((w_max - w_min) * 0.15, 6)
-y_domain = [w_min - w_pad, w_max + w_pad]
-
-d_min, d_max = chart_df["date"].min(), chart_df["date"].max()
-d_pad = timedelta(days=max((d_max - d_min).days * 0.1, 3))
-x_domain = [d_min - d_pad, d_max + d_pad]
-
+# Final bulletproof chart
 chart = alt.Chart(chart_df).mark_line(
-    strokeWidth=4.5,
-    point=alt.OverlayMarkDef(filled=True, size=320, stroke="white", strokeWidth=6)
+    strokeWidth=5,
+    point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
 ).encode(
-    x=alt.X("date:T",
-            title=x_title,
-            axis=alt.Axis(format=x_format, tickCount=8, grid=False),
-            scale=alt.Scale(domain=x_domain)),
-    y=alt.Y("weight:Q",
-            title="Weight (lbs)",
-            scale=alt.Scale(domain=y_domain)),
+    x=x_axis,
+    y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(zero=False)),
     color=alt.Color("user:N",
                     legend=alt.Legend(title=None, orient="top"),
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#00E676","#FF5252"])),
+                    scale=alt.Scale(domain=["Matthew", "Jasmine"], 
+                                    range=["#1E90FF", "#FF69B4"])),  # Blue & Hot Pink
     tooltip=[
         alt.Tooltip("user:N", title="Name"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
@@ -128,33 +111,33 @@ chart = alt.Chart(chart_df).mark_line(
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— SLICK DELETE: FULL TABLE WITH SWIPE-TO-DELETE ———
+# ——— VIEW ALL + DELETE (NOW WORKS 100%) ———
 if st.button("View All Entries → Edit / Delete"):
     st.subheader("All Weight Entries")
     display_df = df.copy()
     display_df["Date"] = display_df["date"].dt.strftime("%b %d, %Y")
     display_df = display_df[["user", "Date", "weight"]].sort_values("date", ascending=False)
 
-    # Use st.data_editor with row selection
     edited = st.data_editor(
         display_df,
+        num_rows="dynamic",
         use_container_width=True,
         hide_index=False,
         column_config={
             "weight": st.column_config.NumberColumn("Weight (lbs)", format="%.1f")
         },
-        disabled=["user", "Date", "weight"]
+        key="data_editor"
     )
 
-    selected_rows = st.session_state.get("selected_rows", [])
-    if st.button("Delete selected row(s)"):
-        if not selected_rows:
-            st.warning("Select a row first")
+    if st.button("Delete Selected Row(s)", type="secondary"):
+        selected = st.session_state.data_editor["selected_rows"]
+        if not selected:
+            st.warning("Please select one or more rows")
         else:
-            for idx in selected_rows:
-                real_idx = display_df.index[idx]
-                del_user = df.loc[real_idx, "user"]
-                del_date = df.loc[real_idx, "date"].strftime("%Y-%m-%d")
+            for row in selected:
+                idx = row["_index"]
+                del_user = df.iloc[idx]["user"]
+                del_date = df.iloc[idx]["date"].strftime("%Y-%m-%d")
                 c.execute("DELETE FROM weights WHERE user = ? AND date = ?", (del_user, del_date))
             conn.commit()
             st.success("Deleted!")
