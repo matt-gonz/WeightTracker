@@ -36,7 +36,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# ——— IMPORTER ALWAYS VISIBLE ———
+# ——— IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -72,13 +72,31 @@ df = df.sort_values("date").reset_index(drop=True)
 df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
 df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— DATE RANGE FILTER ———
+# ——— USER FILTER CHECKBOXES ———
+show_matthew = st.checkbox("Show Matthew", value=True)
+show_jasmine = st.checkbox("Show Jasmine", value=True)
+if not show_matthew and not show_jasmine:
+    st.warning("Select at least one user")
+    show_matthew = show_jasmine = True
+
+# ——— DATE RANGE ———
 st.markdown("### Trend Chart")
 view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
 days_back = {"Week": 7, "30D": 30, "90D": 90, "Year": 365, "All": 99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
+
+if show_matthew and show_jasmine:
+    chart_df = chart_df
+elif show_matthew:
+    chart_df = chart_df[chart_df["user"] == "Matthew"]
+elif show_jasmine:
+    chart_df = chart_df[chart_df["user"] == "Jasmine"]
+
+if chart_df.empty:
+    st.info(f"No data in the last {view.lower()} yet")
+    st.stop()
 
 # ——— SMART X-AXIS ———
 if view in ["Week", "30D"]:
@@ -91,13 +109,13 @@ else:
     x_format = "%Y"
     x_title = "Year"
 
-# ——— PERFECT CHART (ALL DOTS VISIBLE, NO TOP-LEFT BUG) ———
+# ——— FIXED CHART ———
 chart = alt.Chart(chart_df).mark_line(
     strokeWidth=4,
     point=alt.OverlayMarkDef(filled=True, size=300, stroke="white", strokeWidth=5)
 ).encode(
     x=alt.X("date:T", title=x_title, axis=alt.Axis(format=x_format, tickCount=6)),
-    y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(zero=False)),
+    y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N",
                     legend=alt.Legend(title=None, orient="top", direction="horizontal"),
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
@@ -107,13 +125,11 @@ chart = alt.Chart(chart_df).mark_line(
         alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
         alt.Tooltip("tooltip_total:N", title="Total Change")
     ]
-).properties(
-    height=520
-).interactive()
+).properties(height=500).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— VIEW ALL + DELETE (SLICK WITH SWIPE ON MOBILE) ———
+# ——— VIEW ALL + DELETE ———
 if st.button("View All Entries → Edit / Delete"):
     st.subheader("All Weight Entries")
     disp = df.copy()
@@ -124,17 +140,20 @@ if st.button("View All Entries → Edit / Delete"):
         disp,
         use_container_width=True,
         hide_index=False,
+        column_config={
+            "weight": st.column_config.NumberColumn("Weight (lbs)", format="%.1f")
+        },
         key="editor"
     )
 
-    selected = st.session_state.editor.get("selected_rows", [])
-    if selected:
+    selected_rows = st.session_state.editor.get("selected_rows", [])
+    if selected_rows:
         if st.button("Delete Selected Row(s)", type="secondary"):
-            for row in selected:
+            for row in selected_rows:
                 idx = row["_index"]
                 del_user = df.iloc[idx]["user"]
                 del_date = df.iloc[idx]["date"].strftime("%Y-%m-%d")
-                c.execute("DELETE FROM weights WHERE user=? AND date=?", (del_user, del_date))
+                c.execute("DELETE FROM weights WHERE user = ? AND date = ?", (del_user, del_date))
             conn.commit()
             st.success("Deleted!")
             st.rerun()
