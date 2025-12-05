@@ -19,7 +19,7 @@ params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
-user = st.sidebar.selectbox("Who am I am?", ["Matthew", "Jasmine"], 
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
                            index=0 if default_user == "Matthew" else 1)
 
 st.header(f"{user}'s Log")
@@ -27,7 +27,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     date_input = st.date_input("Date", datetime.today())
 with col2:
-    weight_input = st.number_input("Weight (lbs)", 50.0, 500.0, step=0.1, value=150.0)
+    weight_input = st.number_input("Weight (lbs)", 50.0, 500., step=0.1, value=150.0)
 
 if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
@@ -70,13 +70,18 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— LEGEND + CHECKBOXES ———
+# ——— LEGEND WITH COLORED CIRCLES + CHECKBOXES ———
 st.markdown("### Trend Chart")
-col1, col2 = st.columns(2)
-with col1:
+
+col_m, col_j = st.columns([1, 1])
+with col_m:
     show_matthew = st.checkbox("Matthew", value=True)
-with col2:
+    if show_matthew:
+        st.markdown("<span style='color:#1E90FF'>●</span> Matthew", unsafe_allow_html=True)
+with col_j:
     show_jasmine = st.checkbox("Jasmine", value=True)
+    if show_jasmine:
+        st.markdown("<span style='color:#FF69B4'>●</span> Jasmine", unsafe_allow_html=True)
 
 if not show_matthew and not show_jasmine:
     st.warning("Select at least one user")
@@ -86,31 +91,20 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# ——— FINAL BULLETPROOF CHART — LINES + POINTS + ZOOM ———
-line = alt.Chart(plot_df).mark_line(
-    strokeWidth=5
-).encode(
+# ——— FINAL ROCK-SOLID CHART — LINES + POINTS + LABELS ———
+line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"]))
 )
 
-points = alt.Chart(plot_df).mark_circle(
-    size=380,
-    stroke="white",
-    strokeWidth=1,
-    filled=True
-).encode(
+points = alt.Chart(plot_df).mark_circle(size=300, stroke="white", strokeWidth=1).encode(
     x=alt.X("date:T"),
     y=alt.Y("weight:Q"),
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=[
-        alt.Tooltip("user:N", title="Name"),
-        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
-    ]
+    tooltip=["user", "date", "weight"]
 )
 
 chart = (line + points).properties(height=520).interactive()
