@@ -4,16 +4,17 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
+# ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS weights 
-             weights (user TEXT, date TEXT, weight REAL, PRIMARY KEY (user, date))''')
+c.execute('''CREATE TABLE IF NOT EXISTS weights (
+             user TEXT, date TEXT, weight REAL, PRIMARY KEY (user, date))''')
 conn.commit()
 
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# USER LOGGING
+# ——— USER SELECTION ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
@@ -21,6 +22,7 @@ if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
 user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
                            index=0 if default_user == "Matthew" else 1)
 
+# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -35,7 +37,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# IMPORTER
+# ——— IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -60,7 +62,7 @@ if uploaded:
     except Exception as e:
         st.error(f"Import failed: {e}")
 
-# LOAD DATA
+# ——— LOAD DATA ———
 df = pd.read_sql_query("SELECT * FROM weights", conn)
 if df.empty:
     st.info("No data yet — start logging!")
@@ -68,8 +70,10 @@ if df.empty:
 
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
+df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
+df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# USER FILTER CHECKBOXES
+# ——— USER FILTER CHECKBOXES ———
 st.markdown("### Trend Chart")
 col1, col2 = st.columns([1, 4])
 with col1:
@@ -86,33 +90,15 @@ if not show_matthew:
 if not show_jasmine:
     chart_df = chart_df[chart_df["user"] != "Jasmine"]
 
-# TOOLTIP
-chart_df["total_change"] = chart_df["weight"] - chart_df.groupby("user")["weight"].transform("first")
-chart_df["tooltip_total"] = chart_df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
-
-# FINAL CHART — 100% CORRECT POSITIONING
+# ——— FINAL CHART — PERFECT ———
 chart = alt.Chart(chart_df).mark_line(
     strokeWidth=5,
     point=alt.OverlayMarkDef(filled=True, size=380, stroke="white", strokeWidth=7)
 ).encode(
-    x=alt.X("date:T",
-            title=None,
-            axis=alt.Axis(
-                format="%b %d %Y",
-                labelAngle=-45,
-                labelOverlap=False,
-                grid=False
-            )),
+    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d %Y", labelAngle=-45, labelOverlap=False)),
     y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N",
-                    title=None,
-                    legend=alt.Legend(
-                        orient="top",
-                        direction="horizontal",
-                        symbolType="circle",
-                        symbolSize=200,
-                        labelFontSize=14
-                    ),
+                    legend=alt.Legend(title=None, orient="top", direction="horizontal", symbolType="circle", symbolSize=200),
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
     tooltip=[
         alt.Tooltip("user:N", title="Name"),
@@ -120,14 +106,11 @@ chart = alt.Chart(chart_df).mark_line(
         alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
         alt.Tooltip("tooltip_total:N", title="Total Change")
     ]
-).properties(
-    height=520,
-    width="container"
-).interactive()
+).properties(height=520).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
-# LAST 10 & BACKUP
+# ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
