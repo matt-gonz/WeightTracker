@@ -4,6 +4,7 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
+# ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS weights 
@@ -13,7 +14,7 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# USER LOGGING
+# ——— USER LOGGING ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
@@ -35,7 +36,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# IMPORTER
+# ——— IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -60,7 +61,7 @@ if uploaded:
     except Exception as e:
         st.error(f"Import failed: {e}")
 
-# LOAD DATA
+# ——— LOAD DATA ———
 df = pd.read_sql_query("SELECT * FROM weights", conn)
 if df.empty:
     st.info("No data yet — start logging!")
@@ -69,14 +70,16 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# EXACTLY WHAT YOU ASKED FOR — LEGEND
+# ——— LEGEND: CHECKBOX + COLORED CIRCLE + NAME — ONLY ONCE EACH ———
 st.markdown("### Trend Chart")
 
-show_matthew = st.checkbox("Matthew", value=True)
-st.markdown(f"<span style='color:#1E90FF;font-size:32px'>●</span> Matthew", unsafe_allow_html=True)
-
-show_jasmine = st.checkbox("Jasmine", value=True)
-st.markdown(f"<span style='color:#FF69B4;font-size:32px'>●</span> Jasmine", unsafe_allow_html=True)
+col1, col2 = st.columns(2)
+with col1:
+    show_matthew = st.checkbox("", value=True, key="m")
+    st.markdown("**<span style='color:#1E90FF'>●</span> Matthew**", unsafe_allow_html=True)
+with col2:
+    show_jasmine = st.checkbox("", value=True, key="j")
+    st.markdown("**<span style='color:#FF69B4'>●</span> Jasmine**", unsafe_allow_html=True)
 
 if not show_matthew and not show_jasmine:
     st.warning("Select at least one user")
@@ -86,7 +89,7 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# FINAL ROCK-SOLID CHART
+# ——— FINAL PERFECT CHART — LINES + POINTS + TOOLTIPS ———
 line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
@@ -103,12 +106,11 @@ points = alt.Chart(plot_df).mark_circle(size=380, stroke="white", strokeWidth=1)
 )
 
 chart = (line + points).properties(height=520).interactive()
-
 st.altair_chart(chart, use_container_width=True)
 
-# LAST 10 & BACKUP
+# ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
-st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
+st.dataframe(df.sort_values("date", ascending=False).head(10)[["user,"date","weight"]], hide_index=True)
 
 st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
