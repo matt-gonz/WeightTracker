@@ -69,18 +69,14 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# SINGLE LINE LEGEND + CHECKBOXES
+# EXACTLY WHAT YOU ASKED FOR — LEGEND
 st.markdown("### Trend Chart")
 
-col1, col2 = st.columns([1, 1])
-with col1:
-    show_matthew = st.checkbox("Matthew", value=True)
-    if show_matthew:
-        st.markdown("**<span style='color:#1E90FF'>● Matthew</span>**", unsafe_allow_html=True)
-with col2:
-    show_jasmine = st.checkbox("Jasmine", value=True)
-    if show_jasmine:
-        st.markdown("**<span style='color:#FF69B4'>● Jasmine</span>**", unsafe_allow_html=True)
+show_matthew = st.checkbox("Matthew", value=True)
+st.markdown(f"<span style='color:#1E90FF;font-size:32px'>●</span> Matthew", unsafe_allow_html=True)
+
+show_jasmine = st.checkbox("Jasmine", value=True)
+st.markdown(f"<span style='color:#FF69B4;font-size:32px'>●</span> Jasmine", unsafe_allow_html=True)
 
 if not show_matthew and not show_jasmine:
     st.warning("Select at least one user")
@@ -90,7 +86,7 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# FINAL CHART — GUARANTEED LINES + POINTS + TOOLTIPS
+# FINAL ROCK-SOLID CHART
 line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
@@ -98,7 +94,7 @@ line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"]))
 )
 
-points = alt.Chart(plot_df).mark_circle(size=350, stroke="white", strokeWidth=1).encode(
+points = alt.Chart(plot_df).mark_circle(size=380, stroke="white", strokeWidth=1).encode(
     x="date:T",
     y="weight:Q",
     color=alt.Color("user:N", legend=None,
