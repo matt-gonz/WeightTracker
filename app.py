@@ -70,60 +70,6 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— LEGEND WITH COLORED CIRCLES ABOVE CHART ———
+# ——— LEGEND + CHECKBOXES ———
 st.markdown("### Trend Chart")
-
-col1, col2 = st.columns(2)
-with col1:
-    show_matthew = st.checkbox("Matthew", value=True)
-with col2:
-    show_jasmine = st.checkbox("Jasmine", value=True)
-
-if not show_matthew and not show_jasmine:
-    st.warning("Select at least one user")
-    show_matthew = show_jasmine = True
-
-plot_df = df.copy()
-if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
-if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
-
-# ——— PERFECT CHART — EVERYTHING FIXED ———
-chart = alt.Chart(plot_df).mark_line(
-    strokeWidth=4.5,
-    point=alt.OverlayMarkDef(
-        filled=True,
-        size=320,
-        stroke="white",
-        strokeWidth=1  # 1px white border
-    )
-).encode(
-    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
-    y=alt.Y("weight:Q",
-            title="Weight (lbs)",
-            scale=alt.Scale(domain=[100, 190]),
-            axis=alt.Axis(
-                values=list(range(100, 191, 10)),     # 10-lb major
-                tickCount=19,                         # 5-lb minor grid
-                gridDash=[3,3],                       # subtle dashed minor
-                gridOpacity=0.3
-            )),
-    color=alt.Color("user:N",
-                    legend=None,
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=[
-        alt.Tooltip("user:N", title="Name"),
-        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
-    ]
-).properties(height=520).interactive(bind_y=False)  # fixes vertical explosion
-
-st.altair_chart(chart, use_container_width=True)
-
-# ——— LAST 10 & BACKUP ———
-st.header("Last 10 Entries")
-st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
-
-st.download_button("Download Full Backup CSV",
-                   df.to_csv(index=False).encode(),
-                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
-                   "text/csv")
+col1, col2 = st
