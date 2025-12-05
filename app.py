@@ -7,22 +7,20 @@ import sqlite3
 # ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS weights (
-             user TEXT, date TEXT, weight REAL, PRIMARY KEY (user, date))''')
+c.execute('''CREATE TABLE IF NOT EXISTS weights 
+             (user TEXT, date TEXT, weight REAL, PRIMARY KEY (user, date))''')
 conn.commit()
 
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER SELECTION ———
+# ——— USER LOGGING ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
-user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
-                           index=0 if default_user == "Matthew" else 1)
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0 if default_user == "Matthew" else 1)
 
-# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -70,41 +68,39 @@ if df.empty:
 
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
-df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
-df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— USER FILTER CHECKBOXES ———
+# ——— CHECKBOX LEGEND ———
 st.markdown("### Trend Chart")
-col1, col2 = st.columns([1, 4])
-with col1:
-    show_matthew = st.checkbox("Matthew", value=True)
-    show_jasmine = st.checkbox("Jasmine", value=True)
+col_legend, _ = st.columns([1, 4])
+with col_legend:
+    show_matthew = st.checkbox("Matthew", value=True, key="cb_m")
+    show_jasmine = st.checkbox("Jasmine", value=True, key="cb_j")
 
 if not show_matthew and not show_jasmine:
     st.warning("Select at least one user")
     show_matthew = show_jasmine = True
 
-chart_df = df.copy()
+plot_df = df.copy()
 if not show_matthew:
-    chart_df = chart_df[chart_df["user"] != "Matthew"]
+    plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine:
-    chart_df = chart_df[chart_df["user"] != "Jasmine"]
+    plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# ——— FINAL CHART — PERFECT ———
-chart = alt.Chart(chart_df).mark_line(
+# ——— FINAL CORRECT CHART ———
+chart = alt.Chart(plot_df).mark_line(
     strokeWidth=5,
     point=alt.OverlayMarkDef(filled=True, size=380, stroke="white", strokeWidth=7)
 ).encode(
-    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d %Y", labelAngle=-45, labelOverlap=False)),
+    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N",
-                    legend=alt.Legend(title=None, orient="top", direction="horizontal", symbolType="circle", symbolSize=200),
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
+                    legend=None,
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], 
+                                  range=["#1E90FF","#FF69B4"])),
     tooltip=[
         alt.Tooltip("user:N", title="Name"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-        alt.Tooltip("tooltip_total:N", title="Total Change")
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
     ]
 ).properties(height=520).interactive()
 
