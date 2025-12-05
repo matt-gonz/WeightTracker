@@ -110,9 +110,10 @@ st.altair_chart(chart, use_container_width=True)
 
 # ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
-st.dataframe(df.sort_values("date", ascending=False).head(10)[["user,"date","weight"]], hide_index=True)
+st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
 st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
