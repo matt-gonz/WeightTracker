@@ -14,7 +14,7 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER LOGGING ———
+# ——— USER SELECTION ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
@@ -22,6 +22,7 @@ if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
 user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
                            index=0 if default_user == "Matthew" else 1)
 
+# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -70,6 +71,46 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— LEGEND + CHECKBOXES ———
+# ——— LEGEND WITH CHECKBOXES + COLORED CIRCLES ———
 st.markdown("### Trend Chart")
-col1, col2 = st
+col_legend1, col_legend2 = st.columns([1, 1])
+with col_legend1:
+    show_matthew = st.checkbox("Matthew", value=True)
+with col_legend2:
+    show_jasmine = st.checkbox("Jasmine", value=True)
+
+if not show_matthew and not show_jasmine:
+    st.warning("Select at least one user")
+    show_matthew = show_jasmine = True
+
+plot_df = df.copy()
+if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
+if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
+
+# ——— PERFECT CHART — LINES + POINTS + NO BUGS ———
+chart = alt.Chart(plot_df).mark_line(
+    strokeWidth=5,
+    point=alt.OverlayMarkDef(filled=True, size=340, stroke="white", strokeWidth=1)
+).encode(
+    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
+    y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
+    color=alt.Color("user:N",
+                    legend=None,
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
+    tooltip=[
+        alt.Tooltip("user:N", title="Name"),
+        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
+    ]
+).properties(height=520).interactive()
+
+st.altair_chart(chart, use_container_width=True)
+
+# ——— LAST 10 & BACKUP ———
+st.header("Last 10 Entries")
+st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
+
+st.download_button("Download Full Backup CSV",
+                   df.to_csv(index=False).encode(),
+                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+                   "text/csv")
