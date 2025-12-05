@@ -70,10 +70,10 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— LEGEND: CHECKBOX + COLORED CIRCLE + NAME — ONLY ONCE EACH ———
+# ——— LEGEND: CHECKBOX + COLORED CIRCLE + NAME — ONLY ONCE ———
 st.markdown("### Trend Chart")
 
-col1, col2 = st.columns(2)
+col1, col2 = st.columns([1, 1])
 with col1:
     show_matthew = st.checkbox("", value=True, key="m")
     st.markdown("**<span style='color:#1E90FF'>●</span> Matthew**", unsafe_allow_html=True)
@@ -89,23 +89,33 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# ——— FINAL PERFECT CHART — LINES + POINTS + TOOLTIPS ———
-line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
+# ——— FINAL CHART — TOOLTIPS 100% RELIABLE ———
+points = alt.Chart(plot_df).mark_circle(
+    size=380,
+    stroke="white",
+    strokeWidth=1,
+    filled=True
+).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
+    color=alt.Color("user:N", legend=None,
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
+    tooltip=[
+        alt.Tooltip("user:N", title="Name"),
+        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
+    ]
+)
+
+line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
+    x="date:T",
+    y="weight:Q",
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"]))
 )
 
-points = alt.Chart(plot_df).mark_circle(size=380, stroke="white", strokeWidth=1).encode(
-    x="date:T",
-    y="weight:Q",
-    color=alt.Color("user:N", legend=None,
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=["user", alt.Tooltip("date:T", format="%b %d, %Y"), alt.Tooltip("weight:Q", format=".1f")]
-)
-
 chart = (line + points).properties(height=520).interactive()
+
 st.altair_chart(chart, use_container_width=True)
 
 # ——— LAST 10 & BACKUP ———
@@ -116,4 +126,3 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
-
