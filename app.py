@@ -69,13 +69,11 @@ if df.empty:
 
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
-df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
-df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— CHECKBOXES WITH LEGEND ———
+# ——— LEGEND WITH CHECKBOXES ———
 st.markdown("### Trend Chart")
-col1, col2 = st.columns([1, 4])
-with col1:
+col_legend, _ = st.columns([1, 4])
+with col_legend:
     show_matthew = st.checkbox("Matthew", value=True)
     show_jasmine = st.checkbox("Jasmine", value=True)
 
@@ -89,12 +87,12 @@ if not show_matthew:
 if not show_jasmine:
     chart_df = chart_df[chart_df["user"] != "Jasmine"]
 
-# ——— FIXED CHART (NO TOP-LEFT BUG, FULL VISIBILITY) ———
+# ——— FINAL CHART — NO MORE TOP-LEFT BUG ———
 chart = alt.Chart(chart_df).mark_line(
-    strokeWidth=4,
-    point=alt.OverlayMarkDef(filled=True, size=300, stroke="white", strokeWidth=5)
+    strokeWidth=5,
+    point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
 ).encode(
-    x=alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d", labelAngle=-45, labelLimit=0)),
+    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45, labelOverlap=False)),
     y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N",
                     legend=alt.Legend(title=None, orient="top", direction="horizontal", symbolType="circle", symbolSize=200),
@@ -103,9 +101,11 @@ chart = alt.Chart(chart_df).mark_line(
         alt.Tooltip("user:N", title="Name"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
         alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-        alt.Tooltip("tooltip_total:N", title="Total Change")
+        alt.Tooltip(field="weight", title="Total Change", 
+                   format="+.1f", aggregate={"argmax": "weight"}, 
+                   formatType="number")  # Simple tooltip, no extra column
     ]
-).properties(height=500).interactive()
+).properties(height=520).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
