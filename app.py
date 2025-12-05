@@ -4,7 +4,6 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
-# ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS weights 
@@ -14,14 +13,14 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER SELECTION ———
+# LOG WEIGHT
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
-user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0 if default_user == "Matthew" else 1)
+user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
+                           index=0 if default_user == "Matthew" else 1)
 
-# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -36,7 +35,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# ——— IMPORTER ———
+# IMPORTER
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -61,7 +60,7 @@ if uploaded:
     except Exception as e:
         st.error(f"Import failed: {e}")
 
-# ——— LOAD DATA ———
+# LOAD DATA
 df = pd.read_sql_query("SELECT * FROM weights", conn)
 if df.empty:
     st.info("No data yet — start logging!")
@@ -70,50 +69,31 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
 
-# ——— LEGEND WITH CHECKBOXES ———
-st.markdown("### Trend Chart")
-col_legend, _ = st.columns([1, 4])
-with col_legend:
-    show_matthew = st.checkbox("Matthew", value=True)
-    show_jasmine = st.checkbox("Jasmine", value=True)
+# ORIGINAL CHART THAT ALWAYS WORKED
+st.markdown("### Trend Chart — All Data")
 
-if not show_matthew and not show_jasmine:
-    st.warning("Select at least one user")
-    show_matthew = show_jasmine = True
-
-chart_df = df.copy()
-if not show_matthew:
-    chart_df = chart_df[chart_df["user"] != "Matthew"]
-if not show_jasmine:
-    chart_df = chart_df[chart_df["user"] != "Jasmine"]
-
-# ——— FINAL CHART — NO MORE TOP-LEFT BUG ———
-chart = alt.Chart(chart_df).mark_line(
-    strokeWidth=5,
-    point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
+chart = alt.Chart(df).mark_line(
+    point=True,
+    strokeWidth=4
 ).encode(
-    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45, labelOverlap=False)),
+    x=alt.X("date:T", title="Date"),
     y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N",
-                    legend=alt.Legend(title=None, orient="top", direction="horizontal", symbolType="circle", symbolSize=200),
+                    legend=alt.Legend(title=None),
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=[
-        alt.Tooltip("user:N", title="Name"),
-        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
-        alt.Tooltip(field="weight", title="Total Change", 
-                   format="+.1f", aggregate={"argmax": "weight"}, 
-                   formatType="number")  # Simple tooltip, no extra column
-    ]
-).properties(height=520).interactive()
+    tooltip=["user", "date", "weight"]
+).properties(
+    height=500
+).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— LAST 10 & BACKUP ———
+# LAST 10
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
+# BACKUP
 st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
-                   f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+                   f"weight_duel_backup_{datetime.now():%Y-%m-%m-%d}.csv",
                    "text/csv")
