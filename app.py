@@ -4,6 +4,7 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
+# ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS weights 
@@ -13,7 +14,7 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# USER LOGGING
+# ——— USER LOGGING ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
@@ -35,7 +36,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# IMPORTER
+# ——— IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -60,7 +61,7 @@ if uploaded:
     except Exception as e:
         st.error(f"Import failed: {e}")
 
-# LOAD DATA
+# ——— LOAD DATA ———
 df = pd.read_sql_query("SELECT * FROM weights", conn)
 if df.empty:
     st.info("No data yet — start logging!")
@@ -69,7 +70,7 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# LEGEND
+# ——— LEGEND ———
 st.markdown("### Trend Chart")
 
 col1, col2 = st.columns([1, 1])
@@ -88,7 +89,7 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# FINAL SIMPLE CHART — LINES + POINTS — 100% RELIABLE
+# ——— CHART — LINES + POINTS — 100% RELIABLE ———
 chart = alt.Chart(plot_df).mark_line(
     point=True,
     strokeWidth=5
@@ -101,7 +102,47 @@ chart = alt.Chart(plot_df).mark_line(
 
 st.altair_chart(chart, use_container_width=True)
 
-# LAST 10 & BACKUP
+# ——— STATS SECTION — RESTORED ———
+st.header("Current Standings")
+
+def get_stats(person_df):
+    if person_df.empty:
+        return {"latest":"—", "change":"—", "pct":"—", "rate":"—", "streak":0}
+    p = person_df.sort_values("date").reset_index(drop=True)
+    start = p.iloc[0]["weight"]
+    latest = p.iloc[-1]["weight"]
+    change = latest - start
+    rate = "—"
+    if len(p) >= 14:
+        days = (p.iloc[-1]["date"] - p.iloc[-14]["date"]).days
+        if days > 0:
+            rate = f"{(latest - p.iloc[-14]['weight']) * 7 / days:+.1f}"
+    streak = 1
+    for i in range(len(p)-2, -1, -1):
+        if (p.iloc[i+1]["date"] - p.iloc[i]["date"]).days == 1:
+            streak += 1
+        else:
+            break
+    return {"latest":f"{latest:.1f}", "change":f"{change:+.1f}", "pct":f"{change/start*100:+.1f}%", "rate":rate, "streak":streak}
+
+m = get_stats(df[df["user"] == "Matthew"])
+j = get_stats(df[df["user"] == "Jasmine"])
+
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("Matthew")
+    st.metric("Latest Weight", f"{m['latest']} lbs")
+    st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
+    st.write(f"**14-day rate:** {m['rate']} lbs/week")
+    st.write(f"**Streak:** {m['streak']} days")
+with col2:
+    st.subheader("Jasmine")
+    st.metric("Latest Weight", f"{j['latest']} lbs")
+    st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
+    st.write(f"**14-day rate:** {j['rate']} lbs/week")
+    st.write(f"**Streak:** {j['streak']} days")
+
+# ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
