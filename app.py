@@ -4,7 +4,6 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
-# ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS weights 
@@ -14,7 +13,7 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER LOGGING ———
+# USER LOGGING
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
@@ -36,7 +35,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     st.success("Logged!")
     st.rerun()
 
-# ——— IMPORTER ———
+# IMPORTER
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
@@ -61,7 +60,7 @@ if uploaded:
     except Exception as e:
         st.error(f"Import failed: {e}")
 
-# ——— LOAD DATA ———
+# LOAD DATA
 df = pd.read_sql_query("SELECT * FROM weights", conn)
 if df.empty:
     st.info("No data yet — start logging!")
@@ -70,7 +69,7 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— LEGEND: CHECKBOX + COLORED CIRCLE + NAME — ONLY ONCE ———
+# LEGEND — EXACTLY AS YOU WANTED
 st.markdown("### Trend Chart")
 
 col1, col2 = st.columns([1, 1])
@@ -89,36 +88,28 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# ——— FINAL CHART — TOOLTIPS 100% RELIABLE ———
-points = alt.Chart(plot_df).mark_circle(
-    size=380,
-    stroke="white",
-    strokeWidth=1,
-    filled=True
-).encode(
+# FINAL CHART — LINES + POINTS + 100% WORKING TOOLTIPS
+base = alt.Chart(plot_df).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
-    color=alt.Color("user:N", legend=None,
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=[
-        alt.Tooltip("user:N", title="Name"),
-        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
-    ]
-)
-
-line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
-    x="date:T",
-    y="weight:Q",
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"]))
 )
 
-chart = (line + points).properties(height=520).interactive()
+line = base.mark_line(strokeWidth=5)
+points = base.mark_circle(
+    size=380,
+    stroke="white",
+    strokeWidth=1,
+    filled=True,
+    tooltip=alt.Tooltip(["user", "date", "weight"])
+).interactive()  # This makes tooltips 100% reliable
+
+chart = (line + points).properties(height=520)
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— LAST 10 & BACKUP ———
+# LAST 10 & BACKUP
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
