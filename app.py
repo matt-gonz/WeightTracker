@@ -69,7 +69,7 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# LEGEND — EXACTLY AS YOU WANTED
+# LEGEND
 st.markdown("### Trend Chart")
 
 col1, col2 = st.columns([1, 1])
@@ -88,25 +88,15 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# FINAL CHART — THIS IS THE ONE THAT WORKS 100%
+# FINAL SIMPLE CHART — LINES + POINTS — 100% RELIABLE
 chart = alt.Chart(plot_df).mark_line(
-    point=alt.OverlayMarkDef(
-        filled=True,
-        size=380,
-        stroke="white",
-        strokeWidth=1
-    ),
+    point=True,
     strokeWidth=5
 ).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
     color=alt.Color("user:N", legend=None,
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=[
-        alt.Tooltip("user:N", title="Name"),
-        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
-    ]
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"]))
 ).properties(height=520).interactive()
 
 st.altair_chart(chart, use_container_width=True)
