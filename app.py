@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlite3
 
 # ——— DATABASE ———
@@ -34,7 +34,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True):
     c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
               (user, date_input.strftime("%Y-%m-%d"), weight_input))
     conn.commit()
-    st.success("Logged!")
+    st.success(f"Logged {weight_input:.1f} lbs on {date_input:%b %d, %Y}")
     st.rerun()
 
 # ——— IMPORTER ———
@@ -71,78 +71,47 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
 
-# ——— CHART — FIXED FOREVER ———
+# ——— CHART WITH CHECKBOX LEGEND ———
 st.markdown("### Trend Chart")
-view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
-days_back = {"Week":7, "30D":30, "90D":90, "Year":365, "All":99999}[view]
-cutoff = datetime.now() - timedelta(days=days_back)
-chart_df = df[df["date"] >= cutoff].copy()
+# Checkboxes for each user
+show_matthew = st.checkbox("Matthew", value=True, key="show_m")
+show_jasmine = st.checkbox("Jasmine", value=True, key="show_j")
 
-if chart_df.empty:
-    st.info(f"No data in the last {view.lower()} yet")
-else:
-    # Proper domain with padding — kills top-left bug
-    w_min = chart_df["weight"].min()
-    w_max = chart_df["weight"].max()
-    w_pad = max((w_max - w_min) * 0.15, 10)
-    y_domain = [w_min - w_pad, w_max + w_pad]
+if not show_matthew and not show_jasmine:
+    st.warning("Select at least one user")
+    show_matthew = show_jasmine = True
 
-    d_min = chart_df["date"].min()
-    d_max = chart_df["date"].max()
-    d_pad = timedelta(days=max((d_max - d_min).days * 0.1, 3))
-    x_domain = [d_min - d_pad, d_max + d_pad]
+# Filter data
+chart_df = df.copy()
+if not show_matthew:
+    chart_df = chart_df[chart_df["user"] != "Matthew"]
+if not show_jasmine:
+    chart_df = chart_df[chart_df["user"] != "Jasmine"]
 
-    # Smart X-axis — exactly like MyNetDiary
-    if view in ["Week", "30D"]:
-        x_format = "%b %d"
-    else:
-        x_format = "%b %Y"
+# Tooltip
+chart_df["total_change"] = chart_df["weight"] - chart_df.groupby("user")["weight"].transform("first")
+chart_df["tooltip_total"] = chart_df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-    chart = alt.Chart(chart_df).mark_line(
-        strokeWidth=5,
-        point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
-    ).encode(
-        x=alt.X("date:T", title=None, scale=alt.Scale(domain=x_domain),
-                axis=alt.Axis(format=x_format, tickCount=6)),
-        y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=y_domain)),
-        color=alt.Color("user:N",
-                        legend=alt.Legend(title=None, orient="top", direction="horizontal"),
-                        scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-        tooltip=[
-            alt.Tooltip("user:N", title="Name"),
-            alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-            alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
-        ]
-    ).properties(height=520).interactive()
+# Final perfect chart — NO BUGS
+chart = alt.Chart(chart_df).mark_line(
+    strokeWidth=5,
+    point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
+).encode(
+    x=alt.X("date:T", title=None),
+    y=alt.Y("weight:Q", title="Weight (lbs)"),
+    color=alt.Color("user:N",
+                    legend=None,
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
+    tooltip=[
+        alt.Tooltip("user:N", title="Name"),
+        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
+        alt.Tooltip("tooltip_total:N", title="Total Change")
+    ]
+).properties(height=520).interactive()
 
-    st.altair_chart(chart, use_container_width=True)
-
-# ——— VIEW ALL ENTRIES (NOW WORKS) ———
-if st.button("View All Entries → Edit / Delete"):
-    st.subheader("All Weight Entries")
-    disp = df.copy()
-    disp["Date"] = disp["date"].dt.strftime("%b %d, %Y")
-    disp = disp[["user", "Date", "weight"]].sort_values("date", ascending=False).reset_index(drop=True)
-
-    edited = st.data_editor(
-        disp,
-        use_container_width=True,
-        hide_index=False,
-        key="all_entries"
-    )
-
-    selected = st.session_state.get("all_entries", {}).get("selected_rows", [])
-    if selected:
-        if st.button("Delete Selected Row(s)", type="secondary"):
-            for row in selected:
-                idx = row["_index"]
-                del_user = disp.iloc[idx]["user"]
-                del_date = df[df["user"] == del_user]["date"].iloc[idx].strftime("%Y-%m-%d")
-                c.execute("DELETE FROM weights WHERE user=? AND date=?", (del_user, del_date))
-            conn.commit()
-            st.success("Deleted!")
-            st.rerun()
+st.altair_chart(chart, use_container_width=True)
 
 # ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
