@@ -4,6 +4,30 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
+import streamlit as st
+import pandas as pd
+import altair as alt
+from datetime import datetime
+import sqlite3
+
+# ——— PASSCODE PROTECTION ———
+PASSCODE = "jasmine2025"  # ← Change this!
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown("### Weight Duel — Enter Passcode")
+    code = st.text_input("Passcode", type="password")
+    if st.button("Enter"):
+        if code == PASSCODE:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Wrong passcode")
+    st.stop()
+# ——— END OF PROTECTION ———
+
 # ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
@@ -150,3 +174,4 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
