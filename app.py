@@ -14,13 +14,14 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER LOGGING ———
+# ——— USER SELECTION ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
 if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
 user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], index=0 if default_user == "Matthew" else 1)
 
+# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -68,41 +69,43 @@ if df.empty:
 
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
+df["total_change"] = df["weight"] - df.groupby("user")["weight"].transform("first")
+df["tooltip_total"] = df["total_change"].apply(lambda x: f"{x:+.1f} lbs total")
 
-# ——— CHECKBOX LEGEND ———
+# ——— CHECKBOXES WITH LEGEND ———
 st.markdown("### Trend Chart")
-col_legend, _ = st.columns([1, 4])
-with col_legend:
-    show_matthew = st.checkbox("Matthew", value=True, key="cb_m")
-    show_jasmine = st.checkbox("Jasmine", value=True, key="cb_j")
+col1, col2 = st.columns([1, 4])
+with col1:
+    show_matthew = st.checkbox("Matthew", value=True)
+    show_jasmine = st.checkbox("Jasmine", value=True)
 
 if not show_matthew and not show_jasmine:
     st.warning("Select at least one user")
     show_matthew = show_jasmine = True
 
-plot_df = df.copy()
+chart_df = df.copy()
 if not show_matthew:
-    plot_df = plot_df[plot_df["user"] != "Matthew"]
+    chart_df = chart_df[chart_df["user"] != "Matthew"]
 if not show_jasmine:
-    plot_df = plot_df[plot_df["user"] != "Jasmine"]
+    chart_df = chart_df[chart_df["user"] != "Jasmine"]
 
-# ——— FINAL CORRECT CHART ———
-chart = alt.Chart(plot_df).mark_line(
-    strokeWidth=5,
-    point=alt.OverlayMarkDef(filled=True, size=380, stroke="white", strokeWidth=7)
+# ——— FIXED CHART (NO TOP-LEFT BUG, FULL VISIBILITY) ———
+chart = alt.Chart(chart_df).mark_line(
+    strokeWidth=4,
+    point=alt.OverlayMarkDef(filled=True, size=300, stroke="white", strokeWidth=5)
 ).encode(
-    x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
+    x=alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d", labelAngle=-45, labelLimit=0)),
     y=alt.Y("weight:Q", title="Weight (lbs)"),
     color=alt.Color("user:N",
-                    legend=None,
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], 
-                                  range=["#1E90FF","#FF69B4"])),
+                    legend=alt.Legend(title=None, orient="top", direction="horizontal", symbolType="circle", symbolSize=200),
+                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
     tooltip=[
         alt.Tooltip("user:N", title="Name"),
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
-        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs"),
+        alt.Tooltip("tooltip_total:N", title="Total Change")
     ]
-).properties(height=520).interactive()
+).properties(height=500).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
