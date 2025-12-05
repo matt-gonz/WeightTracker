@@ -88,8 +88,16 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# FINAL CHART — LINES + POINTS + TOOLTIPS 100% WORKING
-base = alt.Chart(plot_df).encode(
+# FINAL CHART — THIS IS THE ONE THAT WORKS 100%
+chart = alt.Chart(plot_df).mark_line(
+    point=alt.OverlayMarkDef(
+        filled=True,
+        size=380,
+        stroke="white",
+        strokeWidth=1
+    ),
+    strokeWidth=5
+).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
     color=alt.Color("user:N", legend=None,
@@ -99,12 +107,7 @@ base = alt.Chart(plot_df).encode(
         alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
         alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
     ]
-)
-
-line = base.mark_line(strokeWidth=5)
-points = base.mark_circle(size=380, stroke="white", strokeWidth=1, filled=True)
-
-chart = (line + points).properties(height=520).interactive()
+).properties(height=520).interactive()
 
 st.altair_chart(chart, use_container_width=True)
 
