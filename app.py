@@ -17,7 +17,7 @@ st.title("Weight Duel – Matthew vs Jasmine")
 # ——— USER SELECTION ———
 params = st.query_params.to_dict()
 default_user = "Matthew"
-if "user" in params and params["user"] == "Matthew" or params["user"] == "Jasmine":
+if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
     default_user = params["user"]
 user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
                            index=0 if default_user == "Matthew" else 1)
@@ -71,42 +71,43 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date").reset_index(drop=True)
 
-# ——— DATE RANGE ———
+# ——— CHART — FIXED FOREVER ———
 st.markdown("### Trend Chart")
-view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=True, index=1)
+view = st.radio("View", ["Week", "30D", "90D", "Year", "All"], horizontal=True, index=1)
 
 days_back = {"Week":7, "30D":30, "90D":90, "Year":365, "All":99999}[view]
 cutoff = datetime.now() - timedelta(days=days_back)
 chart_df = df[df["date"] >= cutoff].copy()
 
-# ——— MYNETDIARY-STYLE CHART (NO BUGS) ———
 if chart_df.empty:
     st.info(f"No data in the last {view.lower()} yet")
 else:
-    # Proper domain with padding — this is the real fix
-    y_min = chart_df["weight"].min() - 8
-    y_max = chart_df["weight"].max() + 8
-    x_min = chart_df["date"].min() - timedelta(days=2)
-    x_max = chart_df["date"].max() + timedelta(days=2)
+    # Proper domain with padding — kills top-left bug
+    w_min = chart_df["weight"].min()
+    w_max = chart_df["weight"].max()
+    w_pad = max((w_max - w_min) * 0.15, 10)
+    y_domain = [w_min - w_pad, w_max + w_pad]
 
-    # Smart X-axis labels
-    if view == "Week":
-        x_axis = alt.X("date:T", title=None, axis=alt.Axis(format="%a %d", labelAngle=-45))
-    elif view == "30D":
-        x_axis = alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45))
-    elif view == "90D":
-        x_axis = alt.X("date:T", title=None, axis=alt.Axis(format="%b", labelAngle=0))
-    else:  # Year / All
-        x_axis = alt.X("date:T", title=None, axis=alt.Axis(format="%Y", labelAngle=0))
+    d_min = chart_df["date"].min()
+    d_max = chart_df["date"].max()
+    d_pad = timedelta(days=max((d_max - d_min).days * 0.1, 3))
+    x_domain = [d_min - d_pad, d_max + d_pad]
+
+    # Smart X-axis — exactly like MyNetDiary
+    if view in ["Week", "30D"]:
+        x_format = "%b %d"
+    else:
+        x_format = "%b %Y"
 
     chart = alt.Chart(chart_df).mark_line(
         strokeWidth=5,
-        point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=6)
+        point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
     ).encode(
-        x=x_axis,
-        y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[y_min, y_max])),
+        x=alt.X("date:T", title=None, scale=alt.Scale(domain=x_domain),
+                axis=alt.Axis(format=x_format, tickCount=6)),
+        y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=y_domain)),
         color=alt.Color("user:N",
-                        legend=alt.Legend(title=None, orient="top"),
+                        legend=alt.Legend(title=None, orient="top", direction="horizontal"),
                         scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
         tooltip=[
             alt.Tooltip("user:N", title="Name"),
@@ -127,11 +128,11 @@ if st.button("View All Entries → Edit / Delete"):
     edited = st.data_editor(
         disp,
         use_container_width=True,
-        hide_index=True,
-        key="full_view"
+        hide_index=False,
+        key="all_entries"
     )
 
-    selected = st.session_state.get("full_view", {}).get("selected_rows", [])
+    selected = st.session_state.get("all_entries", {}).get("selected_rows", [])
     if selected:
         if st.button("Delete Selected Row(s)", type="secondary"):
             for row in selected:
