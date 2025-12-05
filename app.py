@@ -70,8 +70,9 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 
-# ——— LEGEND + CHECKBOXES ABOVE CHART ———
+# ——— LEGEND WITH COLORED CIRCLES ABOVE CHART ———
 st.markdown("### Trend Chart")
+
 col1, col2 = st.columns(2)
 with col1:
     show_matthew = st.checkbox("Matthew", value=True)
@@ -83,30 +84,38 @@ if not show_matthew and not show_jasmine:
     show_matthew = show_jasmine = True
 
 plot_df = df.copy()
-if not show_matthew:
-    plot_df = plot_df[plot_df["user"] != "Matthew"]
-if not show_jasmine:
-    plot_df = plot_df[plot_df["user"] != "Jasmine"]
+if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
+if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# ——— FINAL PERFECT CHART ———
+# ——— PERFECT CHART — EVERYTHING FIXED ———
 chart = alt.Chart(plot_df).mark_line(
-    strokeWidth=5,
-    point=alt.OverlayMarkDef(filled=True, size=350, stroke="white", strokeWidth=7)
+    strokeWidth=4.5,
+    point=alt.OverlayMarkDef(
+        filled=True,
+        size=320,
+        stroke="white",
+        strokeWidth=1  # 1px white border
+    )
 ).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q",
             title="Weight (lbs)",
             scale=alt.Scale(domain=[100, 190]),
             axis=alt.Axis(
-                values=list(range(100, 191, 10)),        # Major 10-lb
-                tickCount=19,                             # Minor 5-lb grid
-                gridDash=[4,4]                            # Dashed minor grid
+                values=list(range(100, 191, 10)),     # 10-lb major
+                tickCount=19,                         # 5-lb minor grid
+                gridDash=[3,3],                       # subtle dashed minor
+                gridOpacity=0.3
             )),
     color=alt.Color("user:N",
                     legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=["user", "date", "weight"]
-).properties(height=520).interactive()
+    tooltip=[
+        alt.Tooltip("user:N", title="Name"),
+        alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+        alt.Tooltip("weight:Q", title="Weight", format=".1f lbs")
+    ]
+).properties(height=520).interactive(bind_y=False)  # fixes vertical explosion
 
 st.altair_chart(chart, use_container_width=True)
 
