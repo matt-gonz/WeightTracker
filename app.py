@@ -5,8 +5,8 @@ from datetime import datetime
 import sqlite3
 
 # ——— PASSCODE PROTECTION (SEPARATE FOR EACH PERSON) ———
-MATTHEW_CODE = "matt2025"   # ← Change to whatever you want
-JASMINE_CODE = "jaz2025"    # ← Change to whatever you want
+MATTHEW_CODE = "matthew2025"   # ← Change to whatever you want
+JASMINE_CODE = "jasmine2025"    # ← Change to whatever you want
 
 if "user" not in st.session_state:
     st.markdown("### Weight Duel — Enter Your Passcode")
@@ -164,3 +164,4 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
