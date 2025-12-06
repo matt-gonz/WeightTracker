@@ -4,15 +4,9 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
-import streamlit as st
-import pandas as pd
-import altair as alt
-from datetime import datetime
-import sqlite3
-
-# ——— PASSCODE PROTECTION ———
-MATTHEW_CODE = "matthew2025"
-JASMINE_CODE = "jasmine2025"
+# ——— PASSCODE PROTECTION (SEPARATE FOR EACH PERSON) ———
+MATTHEW_CODE = "matt2025"   # ← Change to whatever you want
+JASMINE_CODE = "jaz2025"    # ← Change to whatever you want
 
 if "user" not in st.session_state:
     st.markdown("### Weight Duel — Enter Your Passcode")
@@ -31,7 +25,6 @@ if "user" not in st.session_state:
     st.stop()
 
 user = st.session_state.user
-# ——— END OF PROTECTION ———
 
 # ——— DATABASE ———
 conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
@@ -43,14 +36,7 @@ conn.commit()
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
-# ——— USER LOGGING ———
-params = st.query_params.to_dict()
-default_user = "Matthew"
-if "user" in params and params["user"] in ["Matthew", "Jasmine"]:
-    default_user = params["user"]
-user = st.sidebar.selectbox("Who am I?", ["Matthew", "Jasmine"], 
-                           index=0 if default_user == "Matthew" else 1)
-
+# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -118,7 +104,7 @@ plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# ——— CHART — LINES + POINTS — 100% RELIABLE ———
+# ——— FINAL PERFECT CHART ———
 chart = alt.Chart(plot_df).mark_line(
     point=True,
     strokeWidth=5
@@ -131,9 +117,7 @@ chart = alt.Chart(plot_df).mark_line(
 
 st.altair_chart(chart, use_container_width=True)
 
-# ——— STATS SECTION — RESTORED ———
-st.header("Current Standings")
-
+# ——— STATS ———
 def get_stats(person_df):
     if person_df.empty:
         return {"latest":"—", "change":"—", "pct":"—", "rate":"—", "streak":0}
@@ -157,6 +141,7 @@ def get_stats(person_df):
 m = get_stats(df[df["user"] == "Matthew"])
 j = get_stats(df[df["user"] == "Jasmine"])
 
+st.header("Current Standings")
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Matthew")
@@ -179,5 +164,3 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
-
-
