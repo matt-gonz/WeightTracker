@@ -11,21 +11,26 @@ from datetime import datetime
 import sqlite3
 
 # ——— PASSCODE PROTECTION ———
-PASSCODE = "jasmine2025"  # ← Change this!
+MATTHEW_CODE = "matthew2025"
+JASMINE_CODE = "jasmine2025"
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.markdown("### Weight Duel — Enter Passcode")
-    code = st.text_input("Passcode", type="password")
+if "user" not in st.session_state:
+    st.markdown("### Weight Duel — Enter Your Passcode")
+    code = st.text_input("Passcode", type="password", key="passcode_input")
     if st.button("Enter"):
-        if code == PASSCODE:
-            st.session_state.authenticated = True
+        if code == MATTHEW_CODE:
+            st.session_state.user = "Matthew"
+            st.success("Welcome, Matthew!")
+            st.rerun()
+        elif code == JASMINE_CODE:
+            st.session_state.user = "Jasmine"
+            st.success("Welcome, Jasmine!")
             st.rerun()
         else:
             st.error("Wrong passcode")
     st.stop()
+
+user = st.session_state.user
 # ——— END OF PROTECTION ———
 
 # ——— DATABASE ———
@@ -174,4 +179,5 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
 
