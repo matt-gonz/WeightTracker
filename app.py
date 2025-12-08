@@ -27,7 +27,7 @@ if "user" not in st.session_state:
 user = st.session_state.user
 
 # ——— DATABASE ———
-conn = sqlite3.connect("weight_tracker.db", check_same_thread=False)
+conn = sqlite3.connect("/mount/src/weighttracker/weight_tracker.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS weights 
              (user TEXT, date TEXT, weight REAL, PRIMARY KEY (user, date))''')
@@ -164,4 +164,5 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
 
