@@ -4,6 +4,51 @@ import altair as alt
 from datetime import datetime
 import sqlite3
 
+# ← Put this near the top of your app.py (after imports)
+import gspread
+import streamlit as st
+import pandas as pd
+import altair as alt
+from datetime import datetime
+import gspread
+
+# GOOGLE SHEETS SETUP (must be exactly like this)
+@st.cache_resource
+def get_sheet():
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    sh = gc.open_by_key(st.secrets["SHEET_ID"])
+    return sh.sheet1
+
+def load_data():
+    sheet = get_sheet()
+    rows = sheet.get_all_values()
+    if len(rows) <= 1:
+        return pd.DataFrame(columns=["user", "date", "weight"])
+    df = pd.DataFrame(rows[1:], columns=rows[0])
+    df["date"] = pd.to_datetime(df["date"])
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
+    return df
+
+def save_data(df):
+    sheet = get_sheet()
+    sheet.clear()
+    sheet.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+
+# LOG WEIGHT (this is the part that writes to the sheet)
+if st.button("Log / Overwrite Weight", use_container_width=True):
+    df = load_data()
+    new_row = pd.DataFrame([{
+        "user": user,
+        "date": date_input.strftime("%Y-%m-%d"),
+        "weight": weight_input
+    }])
+    df = pd.concat([df, new_row], ignore_index=True)
+    # Remove duplicate (user + date) and keep the newest one
+    df = df.drop_duplicates(subset=["user", "date"], keep="last")
+    save_data(df)
+    st.success("Logged!")
+    st.rerun()
+
 # ——— PASSCODE PROTECTION (SEPARATE FOR EACH PERSON) ———
 MATTHEW_CODE = "matthew2025"   # ← Change to whatever you want
 JASMINE_CODE = "jasmine2025"    # ← Change to whatever you want
@@ -164,5 +209,6 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
 
 
