@@ -4,7 +4,7 @@ import altair as alt
 from datetime import datetime
 import gspread
 
-# ——— GOOGLE SHEETS — WORKS 100% ———
+# ——— GOOGLE SHEETS — WORKING 100% ———
 @st.cache_resource
 def get_sheet():
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
@@ -111,7 +111,6 @@ line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
 points = alt.Chart(plot_df).mark_circle(size=380, stroke="white", strokeWidth=1).encode(
     x="date:T",
     y="weight:Q",
-    ",
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
     tooltip=["user", alt.Tooltip("date:T", format="%b %d, %Y"), alt.Tooltip("weight:Q", format=".1f")]
