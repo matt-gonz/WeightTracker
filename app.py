@@ -4,24 +4,26 @@ import altair as alt
 from datetime import datetime
 import gspread
 
-# ——— SEPARATE PASSWORDS ———
-MATTHEW_CODE = "matthew2025"    # ← change to yours
-JASMINE_CODE = "jasmine2025"     # ← change to Jasmine's
+# ——— PASSCODE LOGIN (SEPARATE PASSWORDS) ———
+MATTHEW_CODE = "matthew2025"   # ← change to yours
+JASMINE_CODE = "jasmine2025"    # ← change to Jasmine's
 
-# ——— LOGIN SCREEN ———
 if "user" not in st.session_state:
     st.markdown("### Weight Duel — Enter Your Passcode")
-    code = st.text_input("Passcode", type="password", key="login_code")
-    if st.button("Enter", key="login_btn"):
+    code = st.text_input("Passcode", type="password")
+    if st.button("Enter"):
         if code == MATTHEW_CODE:
             st.session_state.user = "Matthew"
+            st.rerun()
         elif code == JASMINE_CODE:
             st.session_state.user = "Jasmine"
+            st.rerun()
         else:
             st.error("Wrong passcode")
-            st.stop()
+    st.stop()  # Stops execution until logged in
 
-user = st.session_state.user  # ← Now safe to use
+# Now we are 100% sure st.session_state.user exists
+user = st.session_state.user
 
 # ——— GOOGLE SHEETS (PERSISTENT) ———
 @st.cache_resource
@@ -51,7 +53,6 @@ st.title("Weight Duel – Matthew vs Jasmine")
 
 st.sidebar.success(f"Logged in as **{user}**")
 
-# LOG WEIGHT
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -71,7 +72,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True, key="log"):
 # IMPORTER
 st.markdown("---")
 st.subheader("Import Old Data")
-uploaded = st.file_uploader("Upload backup CSV", type="csv", key="import")
+uploaded = st.file_uploader("Upload backup CSV", type="csv", key="importer")
 if uploaded:
     tmp = pd.read_csv(uploaded)
     tmp = tmp[["user","date","weight"]].dropna()
@@ -91,10 +92,14 @@ st.markdown("### Trend Chart")
 col1, col2 = st.columns([1, 1])
 with col1:
     show_matthew = st.checkbox("", value=True, key="m")
-    st.markdown("**<span style='color:#1E90FF'>Circle</span> Matthew**", unsafe_allow_html=True)
+    st.markdown("**<span style='color:#1E90FF'>●</span> Matthew**", unsafe_allow_html=True)
 with col2:
     show_jasmine = st.checkbox("", value=True, key="j")
-    st.markdown("**<span style='color:#FF69B4'>Circle</span> Jasmine**", unsafe_allow_html=True)
+    st.markdown("**<span style='color:#FF69B4'>●</span> Jasmine**", unsafe_allow_html=True)
+
+if not show_matthew and not show_jasmine:
+    st.warning("Select at least one user")
+    show_matthew = show_jasmine = True
 
 plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
@@ -123,7 +128,6 @@ st.altair_chart(chart, use_container_width=True)
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
-# BACKUP
 st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
