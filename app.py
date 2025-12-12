@@ -11,7 +11,7 @@ JASMINE_CODE = "jaz2025"     # ← change to whatever you want
 if "user" not in st.session_state:
     st.markdown("### Weight Duel — Enter Your Passcode")
     code = st.text_input("Passcode", type="password", key="login_code")
-    if st.button("Enter", key="login_btn", on_click=lambda: None)
+    if st.button("Enter", key="login_btn", on_click=lambda: None):
     if st.session_state.get("login_code"):
         if st.session_state.login_code == MATTHEW_CODE:
             st.session_state.user = "Matthew"
@@ -128,3 +128,4 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
