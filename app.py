@@ -12,14 +12,14 @@ if "user" not in st.session_state:
     st.markdown("### Weight Duel — Enter Your Passcode")
     code = st.text_input("Passcode", type="password", key="login_code")
     if st.button("Enter", key="login_btn", on_click=lambda: None):
-    if st.session_state.get("login_code"):
-        if st.session_state.login_code == MATTHEW_CODE:
-            st.session_state.user = "Matthew"
-        elif st.session_state.login_code == JASMINE_CODE:
-            st.session_state.user = "Jasmine"
-        else:
-            st.error("Wrong passcode")
-            st.stop()
+        if st.session_state.get("login_code"):
+            if st.session_state.login_code == MATTHEW_CODE:
+                st.session_state.user = "Matthew"
+            elif st.session_state.login_code == JASMINE_CODE:
+                st.session_state.user = "Jasmine"
+            else:
+                st.error("Wrong passcode")
+                st.stop()
     else:
         st.stop()
 else:
@@ -128,4 +128,5 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
 
