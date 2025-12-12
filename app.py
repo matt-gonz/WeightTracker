@@ -2,43 +2,14 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
-import gspread
+import sqlite3
 
-# ——— PERSONAL GOOGLE SHEETS — NO SERVICE ACCOUNT, NO PERMISSIONS ———
-# This uses YOUR Google account — works perfectly on Streamlit Cloud
-@st.cache_resource
-def get_sheet():
-    gc = gspread.oauth()  # First time: opens Google login popup
-    sh = gc.open_by_key("1ipi81MTgxlyxWylvypOJwbEepia2BF_pQzIT6QdV6IM")
-    return sh.sheet1
-
-def load_data():
-    try:
-        sheet = get_sheet()
-        rows = sheet.get_all_values()
-        if len(rows) <= 1:
-            return pd.DataFrame(columns=["user", "date", "weight"])
-        df = pd.DataFrame(rows[1:], columns=rows[0])
-        df["date"] = pd.to_datetime(df["date"])
-        df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
-        return df.dropna(subset=["date", "weight"])
-    except Exception as e:
-        st.error("Google login needed or failed. Click below to re-authenticate.")
-        if st.button("Login to Google"):
-            st.rerun()
-        st.stop()
-
-def save_data(df):
-    sheet = get_sheet()
-    sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
-
-# ——— LOGIN ———
-MATTHEW_CODE = "matthew2025"
-JASMINE_CODE = "jasmine2025"
+# ——— PASSCODE PROTECTION ———
+MATTHEW_CODE = "matt2025"  # Change this
+JASMINE_CODE = "jaz2025"   # Change this
 
 if "user" not in st.session_state:
-    st.markdown("### Enter Your Passcode")
+    st.markdown("### Weight Duel — Enter Your Passcode")
     code = st.text_input("Passcode", type="password")
     if st.button("Enter"):
         if code == MATTHEW_CODE:
@@ -53,12 +24,19 @@ if "user" not in st.session_state:
 
 user = st.session_state.user
 
-# ——— APP ———
+# ——— PERSISTENT DATABASE ———
+conn = sqlite3.connect("/mount/src/weighttracker/weight_tracker.db", check_same_thread=False)
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS weights 
+             (user TEXT, date TEXT, weight REAL, PRIMARY KEY (user, date))''')
+conn.commit()
+
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
+
 st.sidebar.success(f"Logged in as **{user}**")
 
-# LOG WEIGHT
+# ——— LOG WEIGHT ———
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -67,66 +45,128 @@ with col2:
     weight_input = st.number_input("Weight (lbs)", 50.0, 500.0, step=0.1, value=150.0)
 
 if st.button("Log / Overwrite Weight", use_container_width=True):
-    df = load_data()
-    new_row = pd.DataFrame([{"user": user, "date": date_input.strftime("%Y-%m-%d"), "weight": weight_input}])
-    df = pd.concat([df, new_row], ignore_index=True)
-    df = df.drop_duplicates(subset=["user", "date"], keep="last")
-    save_data(df)
+    c.execute("INSERT OR REPLACE INTO weights VALUES (?, ?, ?)",
+              (user, date_input.strftime("%Y-%m-%d"), weight_input))
+    conn.commit()
     st.success("Logged!")
     st.rerun()
 
-# IMPORTER
+# ——— IMPORTER ———
 st.markdown("---")
 st.subheader("Import Old Data")
 uploaded = st.file_uploader("Upload backup CSV", type="csv")
 if uploaded:
-    tmp = pd.read_csv(uploaded)
-    tmp = tmp[["user","date","weight"]].dropna()
-    tmp["date"] = pd.to_datetime(tmp["date"])
-    save_data(tmp)
-    st.success(f"Imported {len(tmp)} entries!")
-    st.rerun()
+    try:
+        tmp = pd.read_csv(uploaded)
+        rename = {}
+        for col in tmp.columns:
+            l = col.strip().lower()
+            if "user" in l: rename[col] = "user"
+            if "date" in l: rename[col] = "date"
+            if "weight" in l or "lbs" in l: rename[col] = "weight"
+        tmp = tmp.rename(columns=rename)[["user","date","weight"]].dropna()
+        tmp = tmp[tmp["user"].isin(["Matthew","Jasmine"])]
+        tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+        tmp = tmp.dropna()
+        tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
+        c.executemany("INSERT OR REPLACE INTO weights VALUES (?,?,?)", tmp.values.tolist())
+        conn.commit()
+        st.success(f"Imported {len(tmp)} entries!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Import failed: {e}")
 
-# LOAD DATA
-df = load_data()
+# ——— LOAD DATA ———
+df = pd.read_sql_query("SELECT * FROM weights", conn)
 if df.empty:
     st.info("No data yet — start logging!")
     st.stop()
 
-# LEGEND
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values("date")
+
+# ——— AUTO-BACKUP ———
+st.sidebar.markdown("### Auto-Backup")
+csv = df.to_csv(index=False).encode()
+st.sidebar.download_button(
+    "Download Latest Backup",
+    csv,
+    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
+    "text/csv",
+    key="auto_backup"
+)
+
+# ——— LEGEND ———
 st.markdown("### Trend Chart")
 col1, col2 = st.columns([1, 1])
 with col1:
     show_matthew = st.checkbox("", value=True, key="m")
-    st.markdown("**<span style='color:#1E90FF'>Circle</span> Matthew**", unsafe_allow_html=True)
+    st.markdown("**<span style='color:#1E90FF'>●</span> Matthew**", unsafe_allow_html=True)
 with col2:
     show_jasmine = st.checkbox("", value=True, key="j")
-    st.markdown("**<span style='color:#FF69B4'>Circle</span> Jasmine**", unsafe_allow_html=True)
+    st.markdown("**<span style='color:#FF69B4'>●</span> Jasmine**", unsafe_allow_html=True)
+
+if not show_matthew and not show_jasmine:
+    st.warning("Select at least one user")
+    show_matthew = show_jasmine = True
 
 plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
 if not show_jasmine: plot_df = plot_df[plot_df["user"] != "Jasmine"]
 
-# CHART
-line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
+# ——— CHART ———
+chart = alt.Chart(plot_df).mark_line(
+    point=True,
+    strokeWidth=5
+).encode(
     x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %d", labelAngle=-45)),
     y=alt.Y("weight:Q", title="Weight (lbs)", scale=alt.Scale(domain=[100, 190])),
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"]))
-)
+).properties(height=520).interactive()
 
-points = alt.Chart(plot_df).mark_circle(size=380, stroke="white", strokeWidth=1).encode(
-    x="date:T",
-    y="weight:Q",
-    color=alt.Color("user:N", legend=None,
-                    scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
-    tooltip=["user", alt.Tooltip("date:T", format="%b %d, %Y"), alt.Tooltip("weight:Q", format=".1f")]
-)
-
-chart = (line + points).properties(height=520).interactive()
 st.altair_chart(chart, use_container_width=True)
 
-# LAST 10
+# ——— STATS ———
+def get_stats(person_df):
+    if person_df.empty:
+        return {"latest":"—", "change":"—", "pct":"—", "rate":"—", "streak":0}
+    p = person_df.sort_values("date").reset_index(drop=True)
+    start = p.iloc[0]["weight"]
+    latest = p.iloc[-1]["weight"]
+    change = latest - start
+    rate = "—"
+    if len(p) >= 14:
+        days = (p.iloc[-1]["date"] - p.iloc[-14]["date"]).days
+        if days > 0:
+            rate = f"{(latest - p.iloc[-14]['weight']) * 7 / days:+.1f}"
+    streak = 1
+    for i in range(len(p)-2, -1, -1):
+        if (p.iloc[i+1]["date"] - p.iloc[i]["date"]).days == 1:
+            streak += 1
+        else:
+            break
+    return {"latest":f"{latest:.1f}", "change":f"{change:+.1f}", "pct":f"{change/start*100:+.1f}%", "rate":rate, "streak":streak}
+
+m = get_stats(df[df["user"] == "Matthew"])
+j = get_stats(df[df["user"] == "Jasmine"])
+
+st.header("Current Standings")
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("Matthew")
+    st.metric("Latest Weight", f"{m['latest']} lbs")
+    st.write(f"**Change:** {m['change']} lbs ({m['pct']})")
+    st.write(f"**14-day rate:** {m['rate']} lbs/week")
+    st.write(f"**Streak:** {m['streak']} days")
+with col2:
+    st.subheader("Jasmine")
+    st.metric("Latest Weight", f"{j['latest']} lbs")
+    st.write(f"**Change:** {j['change']} lbs ({j['pct']})")
+    st.write(f"**14-day rate:** {j['rate']} lbs/week")
+    st.write(f"**Streak:** {j['streak']} days")
+
+# ——— LAST 10 & BACKUP ———
 st.header("Last 10 Entries")
 st.dataframe(df.sort_values("date", ascending=False).head(10)[["user","date","weight"]], hide_index=True)
 
