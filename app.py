@@ -3,23 +3,35 @@ import pandas as pd
 import altair as alt
 from datetime import datetime
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# ——— GOOGLE SHEETS — WORKING 100% ———
-@st.cache_resource
+# ——— PERSONAL GOOGLE SHEETS — NO SERVICE ACCOUNT, NO PERMISSIONS ———
+# This uses YOUR Google account — you only authenticate once
+@st.experimental_singleton
 def get_sheet():
-    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-    sh = gc.open_by_key(st.secrets["SHEET_ID"])
+    # This will open a Google login popup the first time
+    gc = gspread.oauth(
+        credentials_filename=None,  # uses your browser login
+        flow="console"  # works on Streamlit Cloud
+    )
+    sh = gc.open_by_key("1ipi81MTgxlyxWylvypOJwbEepia2BF_pQzIT6QdV6IM")
     return sh.sheet1
 
 def load_data():
-    sheet = get_sheet()
-    rows = sheet.get_all_values()
-    if len(rows) <= 1:
-        return pd.DataFrame(columns=["user", "date", "weight"])
-    df = pd.DataFrame(rows[1:], columns=rows[0])
-    df["date"] = pd.to_datetime(df["date"])
-    df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
-    return df.dropna(subset=["date", "weight"])
+    try:
+        sheet = get_sheet()
+        rows = sheet.get_all_values()
+        if len(rows) <= 1:
+            return pd.DataFrame(columns=["user", "date", "weight"])
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        df["date"] = pd.to_datetime(df["date"])
+        df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
+        return df.dropna(subset=["date", "weight"])
+    except Exception as e:
+        st.error("Google Sheets login failed. Click below to re-authenticate.")
+        if st.button("Re-authenticate with Google"):
+            st.experimental_rerun()
+        st.stop()
 
 def save_data(df):
     sheet = get_sheet()
