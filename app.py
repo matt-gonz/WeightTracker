@@ -4,12 +4,11 @@ import altair as alt
 from datetime import datetime
 import gspread
 
-# ——— PERSONAL GOOGLE SHEETS (NO SERVICE ACCOUNT NEEDED) ———
-# This uses YOUR Google account — zero permission issues
+# ——— GOOGLE SHEETS — WORKS 100% ———
 @st.cache_resource
 def get_sheet():
-    gc = gspread.oauth()  # ← This opens your Google login
-    sh = gc.open_by_key("1ipi81MTgxlyxWylvypOJwbEepia2BF_pQzIT6QdV6IM")
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    sh = gc.open_by_key(st.secrets["SHEET_ID"])
     return sh.sheet1
 
 def load_data():
@@ -27,13 +26,9 @@ def save_data(df):
     sheet.clear()
     sheet.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
 
-# ——— APP ———
-st.set_page_config(page_title="Weight Duel", layout="centered")
-st.title("Weight Duel – Matthew vs Jasmine")
-
-# SIMPLE LOGIN
-MATTHEW_CODE = "matthew2025"   # ← your code
-JASMINE_CODE = "jasmine2025"    # ← Jasmine's code
+# ——— LOGIN ———
+MATTHEW_CODE = "matthew2025"
+JASMINE_CODE = "jasmine2025"
 
 if "user" not in st.session_state:
     st.markdown("### Enter Your Passcode")
@@ -50,6 +45,10 @@ if "user" not in st.session_state:
     st.stop()
 
 user = st.session_state.user
+
+# ——— APP ———
+st.set_page_config(page_title="Weight Duel", layout="centered")
+st.title("Weight Duel – Matthew vs Jasmine")
 st.sidebar.success(f"Logged in as **{user}**")
 
 # LOG WEIGHT
@@ -112,6 +111,7 @@ line = alt.Chart(plot_df).mark_line(strokeWidth=5).encode(
 points = alt.Chart(plot_df).mark_circle(size=380, stroke="white", strokeWidth=1).encode(
     x="date:T",
     y="weight:Q",
+    ",
     color=alt.Color("user:N", legend=None,
                     scale=alt.Scale(domain=["Matthew","Jasmine"], range=["#1E90FF","#FF69B4"])),
     tooltip=["user", alt.Tooltip("date:T", format="%b %d, %Y"), alt.Tooltip("weight:Q", format=".1f")]
@@ -128,4 +128,3 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
-
