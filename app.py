@@ -32,8 +32,8 @@ st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
 # SIMPLE LOGIN
-MATTHEW_CODE = "matt2025"   # ← your code
-JASMINE_CODE = "jaz2025"    # ← Jasmine's code
+MATTHEW_CODE = "matthew2025"   # ← your code
+JASMINE_CODE = "jasmine2025"    # ← Jasmine's code
 
 if "user" not in st.session_state:
     st.markdown("### Enter Your Passcode")
@@ -128,3 +128,4 @@ st.download_button("Download Full Backup CSV",
                    df.to_csv(index=False).encode(),
                    f"weight_duel_backup_{datetime.now():%Y-%m-%d}.csv",
                    "text/csv")
+
