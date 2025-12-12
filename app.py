@@ -4,32 +4,12 @@ import altair as alt
 from datetime import datetime
 import gspread
 
-# ——— PASSCODE LOGIN (SEPARATE PASSWORDS) ———
-MATTHEW_CODE = "matthew2025"   # ← change to yours
-JASMINE_CODE = "jasmine2025"    # ← change to Jasmine's
-
-if "user" not in st.session_state:
-    st.markdown("### Weight Duel — Enter Your Passcode")
-    code = st.text_input("Passcode", type="password")
-    if st.button("Enter"):
-        if code == MATTHEW_CODE:
-            st.session_state.user = "Matthew"
-            st.rerun()
-        elif code == JASMINE_CODE:
-            st.session_state.user = "Jasmine"
-            st.rerun()
-        else:
-            st.error("Wrong passcode")
-    st.stop()  # Stops execution until logged in
-
-# Now we are 100% sure st.session_state.user exists
-user = st.session_state.user
-
-# ——— GOOGLE SHEETS (PERSISTENT) ———
+# ——— PERSONAL GOOGLE SHEETS (NO SERVICE ACCOUNT NEEDED) ———
+# This uses YOUR Google account — zero permission issues
 @st.cache_resource
 def get_sheet():
-    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-    sh = gc.open_by_key(st.secrets["SHEET_ID"])
+    gc = gspread.oauth()  # ← This opens your Google login
+    sh = gc.open_by_key("1ipi81MTgxlyxWylvypOJwbEepia2BF_pQzIT6QdV6IM")
     return sh.sheet1
 
 def load_data():
@@ -51,8 +31,28 @@ def save_data(df):
 st.set_page_config(page_title="Weight Duel", layout="centered")
 st.title("Weight Duel – Matthew vs Jasmine")
 
+# SIMPLE LOGIN
+MATTHEW_CODE = "matt2025"   # ← your code
+JASMINE_CODE = "jaz2025"    # ← Jasmine's code
+
+if "user" not in st.session_state:
+    st.markdown("### Enter Your Passcode")
+    code = st.text_input("Passcode", type="password")
+    if st.button("Enter"):
+        if code == MATTHEW_CODE:
+            st.session_state.user = "Matthew"
+            st.rerun()
+        elif code == JASMINE_CODE:
+            st.session_state.user = "Jasmine"
+            st.rerun()
+        else:
+            st.error("Wrong passcode")
+    st.stop()
+
+user = st.session_state.user
 st.sidebar.success(f"Logged in as **{user}**")
 
+# LOG WEIGHT
 st.header(f"{user}'s Log")
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -60,7 +60,7 @@ with col1:
 with col2:
     weight_input = st.number_input("Weight (lbs)", 50.0, 500.0, step=0.1, value=150.0)
 
-if st.button("Log / Overwrite Weight", use_container_width=True, key="log"):
+if st.button("Log / Overwrite Weight", use_container_width=True):
     df = load_data()
     new_row = pd.DataFrame([{"user": user, "date": date_input.strftime("%Y-%m-%d"), "weight": weight_input}])
     df = pd.concat([df, new_row], ignore_index=True)
@@ -72,7 +72,7 @@ if st.button("Log / Overwrite Weight", use_container_width=True, key="log"):
 # IMPORTER
 st.markdown("---")
 st.subheader("Import Old Data")
-uploaded = st.file_uploader("Upload backup CSV", type="csv", key="importer")
+uploaded = st.file_uploader("Upload backup CSV", type="csv")
 if uploaded:
     tmp = pd.read_csv(uploaded)
     tmp = tmp[["user","date","weight"]].dropna()
@@ -96,10 +96,6 @@ with col1:
 with col2:
     show_jasmine = st.checkbox("", value=True, key="j")
     st.markdown("**<span style='color:#FF69B4'>●</span> Jasmine**", unsafe_allow_html=True)
-
-if not show_matthew and not show_jasmine:
-    st.warning("Select at least one user")
-    show_matthew = show_jasmine = True
 
 plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
