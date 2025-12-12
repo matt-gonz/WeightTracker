@@ -3,17 +3,12 @@ import pandas as pd
 import altair as alt
 from datetime import datetime
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 # ——— PERSONAL GOOGLE SHEETS — NO SERVICE ACCOUNT, NO PERMISSIONS ———
-# This uses YOUR Google account — you only authenticate once
-@st.experimental_singleton
+# This uses YOUR Google account — works perfectly on Streamlit Cloud
+@st.cache_resource
 def get_sheet():
-    # This will open a Google login popup the first time
-    gc = gspread.oauth(
-        credentials_filename=None,  # uses your browser login
-        flow="console"  # works on Streamlit Cloud
-    )
+    gc = gspread.oauth()  # First time: opens Google login popup
     sh = gc.open_by_key("1ipi81MTgxlyxWylvypOJwbEepia2BF_pQzIT6QdV6IM")
     return sh.sheet1
 
@@ -28,9 +23,9 @@ def load_data():
         df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
         return df.dropna(subset=["date", "weight"])
     except Exception as e:
-        st.error("Google Sheets login failed. Click below to re-authenticate.")
-        if st.button("Re-authenticate with Google"):
-            st.experimental_rerun()
+        st.error("Google login needed or failed. Click below to re-authenticate.")
+        if st.button("Login to Google"):
+            st.rerun()
         st.stop()
 
 def save_data(df):
@@ -103,10 +98,10 @@ st.markdown("### Trend Chart")
 col1, col2 = st.columns([1, 1])
 with col1:
     show_matthew = st.checkbox("", value=True, key="m")
-    st.markdown("**<span style='color:#1E90FF'>●</span> Matthew**", unsafe_allow_html=True)
+    st.markdown("**<span style='color:#1E90FF'>Circle</span> Matthew**", unsafe_allow_html=True)
 with col2:
     show_jasmine = st.checkbox("", value=True, key="j")
-    st.markdown("**<span style='color:#FF69B4'>●</span> Jasmine**", unsafe_allow_html=True)
+    st.markdown("**<span style='color:#FF69B4'>Circle</span> Jasmine**", unsafe_allow_html=True)
 
 plot_df = df.copy()
 if not show_matthew: plot_df = plot_df[plot_df["user"] != "Matthew"]
